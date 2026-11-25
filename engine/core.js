@@ -7,7 +7,12 @@
     chapterId: null,
     sectionId: "all",
     objectiveFilter: "all",
+    unmasteredOnly: false,
+    allMasteredFallback: false,
     viewMode: "practice",
+    drawerOpen: false,
+    drawerSearch: "",
+    expandedChapters: {},
     currentQ: null,
     lastGenId: null,
     hintsShown: 0,
@@ -33,6 +38,10 @@
       if (typeof saved.streak === "number") state.streak = saved.streak;
       if (saved.theme) state.theme = saved.theme;
       if (typeof saved.keypadEnabled === "boolean") state.keypadEnabled = saved.keypadEnabled;
+      if (typeof saved.chapterId === "string" && saved.chapterId) state.chapterId = saved.chapterId;
+      if (typeof saved.sectionId === "string" && saved.sectionId) state.sectionId = saved.sectionId;
+      if (typeof saved.objectiveFilter === "string" && saved.objectiveFilter) state.objectiveFilter = saved.objectiveFilter;
+      if (typeof saved.unmasteredOnly === "boolean") state.unmasteredOnly = saved.unmasteredOnly;
     } catch (e) {}
   }
 
@@ -42,7 +51,11 @@
         progress: state.progress,
         streak: state.streak,
         theme: state.theme,
-        keypadEnabled: state.keypadEnabled
+        keypadEnabled: state.keypadEnabled,
+        chapterId: state.chapterId,
+        sectionId: state.sectionId,
+        objectiveFilter: state.objectiveFilter,
+        unmasteredOnly: state.unmasteredOnly
       }));
     } catch (e) {}
   }
@@ -51,17 +64,643 @@
     chapters.push(ch);
   }
 
-  function getChapter() {
+  function getChapterById(id) {
     for (var i = 0; i < chapters.length; i++) {
-      if (chapters[i].id === state.chapterId) return chapters[i];
+      if (chapters[i].id === id) return chapters[i];
     }
-    return chapters[0] || null;
+    return null;
+  }
+
+  function getChapter() {
+    return getChapterById(state.chapterId) || chapters[0] || null;
+  }
+
+  function getSectionById(ch, secId) {
+    if (!ch) return null;
+    for (var i = 0; i < ch.sections.length; i++) {
+      if (ch.sections[i].id === secId) return ch.sections[i];
+    }
+    return null;
   }
 
   function getObjectiveKey(chId, secId, objText) {
     return chId + "::" + secId + "::" + objText;
   }
 
+  function getMasteryStatus(key) {
+    var p = state.progress[key];
+    if (!p || p.total === 0) return { code: "new", label: "Not Started", sym: "○" };
+    var recentRight = p.recent.filter(Boolean).length;
+    if (p.recent.length >= 3 && recentRight / p.recent.length >= 0.8) {
+      return { code: "confident", label: "Confidently", sym: "✓" };
+    }
+    if (p.right > 0) return { code: "practicing", label: "With Some Help", sym: "◐" };
+    return { code: "practicing", label: "Needs Practice", sym: "◐" };
+  }
+
+  function getSectionMasteryStats(ch, sec) {
+    var mastered = 0, practicing = 0, total = sec.objectives.length;
+    for (var i = 0; i < total; i++) {
+      var st = getMasteryStatus(getObjectiveKey(ch.id, sec.id, sec.objectives[i]));
+      if (st.code === "confident") mastered++;
+      else if (st.code === "practicing") practicing++;
+    }
+    var overall = mastered === total && total > 0 ? "confident" : (mastered > 0 || practicing > 0 ? "practicing" : "new");
+    return { mastered: mastered, practicing: practicing, total: total, status: overall };
+  }
+
+  function getChapterMasteryStats(ch) {
+    var mastered = 0, practicing = 0, total = 0;
+    for (var i = 0; i < ch.sections.length; i++) {
+      var s = getSectionMasteryStats(ch, ch.sections[i]);
+      mastered += s.mastered;
+      practicing += s.practicing;
+      total += s.total;
+    }
+    return { mastered: mastered, practicing: practicing, total: total };
+  }
+
+  function getUnmasteredCountInScope() {
+    var ch = getChapter();
+    if (!ch) return 0;
+    var count = 0;
+    ch.sections.forEach(function (sec) {
+      if (state.sectionId !== "all" && sec.id !== state.sectionId) return;
+      sec.objectives.forEach(function (obj) {
+        var st = getMasteryStatus(getObjectiveKey(ch.id, sec.id, obj));
+        if (st.code !== "confident") count++;
+      });
+    });
+    return count;
+  }
+
+  function findNextUnmasteredObjective(excludeCurrentObj) {
+    var currentCh = getChapter();
+    var orderedChapters = [];
+    if (currentCh) orderedChapters.push(currentCh);
+    chapters.forEach(function (c) {
+      if (!currentCh || c.id !== currentCh.id) orderedChapters.push(c);
+    });
+
+    for (var ci = 0; ci < orderedChapters.length; ci++) {
+      var ch = orderedChapters[ci];
+      // Put active section first when scanning active chapter
+      var secs = ch.sections.slice();
+      if (currentCh && ch.id === currentCh.id && state.sectionId !== "all") {
+        secs.sort(function (a, b) {
+          return (a.id === state.sectionId ? -1 : 0) - (b.id === state.sectionId ? -1 : 0);
+        });
+      }
+      for (var si = 0; si < secs.length; si++) {
+        var sec = secs[si];
+        for (var oi = 0; oi < sec.objectives.length; oi++) {
+          var obj = sec.objectives[oi];
+          var objVal = sec.id + "::" + obj;
+          if (excludeCurrentObj && currentCh && ch.id === currentCh.id && objVal === state.objectiveFilter) {
+            continue;
+          }
+          var st = getMasteryStatus(getObjectiveKey(ch.id, sec.id, obj));
+          if (st.code !== "confident") {
+            return { chId: ch.id, secId: sec.id, obj: obj, objVal: objVal };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  // Adaptive weight: surface unstarted & weaker objectives more often
+  function getAdaptiveWeight(chId, secId, objText) {
+    var key = getObjectiveKey(chId, secId, objText);
+    var p = state.progress[key];
+    if (!p || p.total === 0) return 3.5;
+    var recentRight = p.recent.filter(Boolean).length;
+    var rate = p.recent.length ? (recentRight / p.recent.length) : 0;
+    if (p.recent.length >= 3 && rate >= 0.8) return 1.0;
+    if (rate < 0.6) return 4.5;
+    return 2.5;
+  }
+
+  // ---------------------------------------------------------
+  // URL Hash + Resume State Sync (#ch03/3.4 or #ch03/3.4/1)
+  // ---------------------------------------------------------
+  function validateNavigationState() {
+    var ch = getChapterById(state.chapterId) || chapters[0] || null;
+    if (!ch) return;
+    state.chapterId = ch.id;
+    state.expandedChapters[ch.id] = true;
+
+    if (state.sectionId !== "all") {
+      var sec = getSectionById(ch, state.sectionId);
+      if (!sec) {
+        state.sectionId = "all";
+        state.objectiveFilter = "all";
+      } else if (state.objectiveFilter !== "all") {
+        var validObj = sec.objectives.some(function (o) { return (sec.id + "::" + o) === state.objectiveFilter; });
+        if (!validObj) state.objectiveFilter = "all";
+      }
+    } else if (state.objectiveFilter !== "all") {
+      // Allow objectiveFilter from any section of this chapter by aligning sectionId
+      var parts = state.objectiveFilter.split("::");
+      var secMatch = parts.length >= 2 ? getSectionById(ch, parts[0]) : null;
+      var objText = parts.slice(1).join("::");
+      if (secMatch && secMatch.objectives.indexOf(objText) !== -1) {
+        state.sectionId = secMatch.id;
+      } else {
+        state.objectiveFilter = "all";
+      }
+    }
+  }
+
+  function applyHashIfPresent() {
+    var raw = (window.location.hash || "").replace(/^#/, "").trim();
+    if (!raw) return false;
+    var querySplit = raw.split("?");
+    var pathParts = querySplit[0].split("/").filter(Boolean);
+    if (pathParts.length === 0) return false;
+
+    var ch = getChapterById(decodeURIComponent(pathParts[0]));
+    if (!ch) return false;
+
+    state.chapterId = ch.id;
+    state.sectionId = "all";
+    state.objectiveFilter = "all";
+
+    if (pathParts.length >= 2) {
+      var secParam = decodeURIComponent(pathParts[1]);
+      if (secParam !== "all") {
+        var sec = getSectionById(ch, secParam);
+        if (sec) {
+          state.sectionId = sec.id;
+          if (pathParts.length >= 3) {
+            var idx = parseInt(pathParts[2], 10);
+            if (!isNaN(idx) && idx >= 0 && idx < sec.objectives.length) {
+              state.objectiveFilter = sec.id + "::" + sec.objectives[idx];
+            }
+          }
+        }
+      }
+    }
+    if (querySplit[1]) {
+      if (querySplit[1].indexOf("unmastered=1") !== -1) state.unmasteredOnly = true;
+      else if (querySplit[1].indexOf("unmastered=0") !== -1) state.unmasteredOnly = false;
+    }
+    return true;
+  }
+
+  function syncLocationHash() {
+    try {
+      var ch = getChapter();
+      if (!ch) return;
+      var hash = "#" + encodeURIComponent(ch.id) + "/" + encodeURIComponent(state.sectionId || "all");
+      if (state.sectionId !== "all" && state.objectiveFilter !== "all") {
+        var sec = getSectionById(ch, state.sectionId);
+        if (sec) {
+          var objText = state.objectiveFilter.slice(sec.id.length + 2);
+          var idx = sec.objectives.indexOf(objText);
+          if (idx !== -1) hash += "/" + idx;
+        }
+      }
+      if (state.unmasteredOnly && state.objectiveFilter === "all") {
+        hash += "?unmastered=1";
+      }
+      if (window.location.hash !== hash) {
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState(null, "", hash);
+        } else {
+          window.location.hash = hash;
+        }
+      }
+    } catch (e) {}
+  }
+
+  function shortChapterLabel(ch) {
+    if (!ch) return "Chapters";
+    var m = ch.title.match(/Chapter\s+(\d+)/i);
+    return m ? ("Ch " + m[1]) : ch.title;
+  }
+
+  function updateNavBreadcrumb() {
+    var ch = getChapter();
+    var textEl = document.getElementById("navBreadcrumbText");
+    var chipEl = document.getElementById("navProgressChip");
+    if (!ch || !textEl || !chipEl) return;
+
+    var chShort = shortChapterLabel(ch);
+    var label = ch.title;
+    var stats;
+
+    if (state.sectionId === "all") {
+      label = chShort + " · " + (state.unmasteredOnly ? "Unmastered" : "Mixed Review");
+      stats = getChapterMasteryStats(ch);
+    } else {
+      var sec = getSectionById(ch, state.sectionId);
+      if (sec) {
+        label = chShort + " · " + sec.id + " " + sec.shortTitle;
+        if (state.objectiveFilter !== "all") label += " (1 obj)";
+        stats = getSectionMasteryStats(ch, sec);
+      } else {
+        stats = getChapterMasteryStats(ch);
+      }
+    }
+
+    textEl.textContent = label;
+    chipEl.textContent = stats.mastered + "/" + stats.total;
+    chipEl.classList.toggle("all-done", stats.total > 0 && stats.mastered === stats.total);
+  }
+
+  function syncSectionBarFades() {
+    var inner = document.getElementById("sectionBarInner");
+    var bar = document.getElementById("sectionBar");
+    if (!inner || !bar) return;
+    var canLeft = bar.scrollLeft > 4;
+    var canRight = bar.scrollLeft + bar.clientWidth < bar.scrollWidth - 4;
+    inner.classList.toggle("has-fade-left", canLeft);
+    inner.classList.toggle("has-fade-right", canRight);
+  }
+
+  function renderSectionBar(scrollActiveIntoView) {
+    var bar = document.getElementById("sectionBar");
+    if (!bar) return;
+    bar.innerHTML = "";
+    var ch = getChapter();
+    if (!ch) return;
+
+    var chStats = getChapterMasteryStats(ch);
+
+    // 1. Adaptive Mixed Review pill
+    var allBtn = document.createElement("button");
+    allBtn.type = "button";
+    allBtn.className = "sec-pill" + (state.sectionId === "all" ? " active" : "");
+    var chDot = document.createElement("span");
+    chDot.className = "sec-dot m-" + (chStats.mastered === chStats.total && chStats.total > 0 ? "confident" : (chStats.mastered > 0 || chStats.practicing > 0 ? "practicing" : "new"));
+    allBtn.appendChild(chDot);
+    allBtn.appendChild(document.createTextNode("Mixed "));
+    var chCnt = document.createElement("span");
+    chCnt.className = "sec-count";
+    chCnt.textContent = chStats.mastered + "/" + chStats.total;
+    allBtn.appendChild(chCnt);
+
+    allBtn.addEventListener("click", function () {
+      navigateTo(ch.id, "all", "all", state.unmasteredOnly);
+    });
+    bar.appendChild(allBtn);
+
+    // 2. Unmastered Only quick toggle pill
+    var unmCount = getUnmasteredCountInScope();
+    var unmBtn = document.createElement("button");
+    unmBtn.type = "button";
+    unmBtn.id = "unmasteredToggleBtn";
+    unmBtn.className = "sec-pill pill-unmastered" + (state.unmasteredOnly ? " active" : "");
+    unmBtn.title = "Practice only objectives not yet mastered (Confidently)";
+    unmBtn.textContent = unmCount > 0
+      ? ("🎯 Unmastered (" + unmCount + ")")
+      : "✓ All Mastered";
+    unmBtn.addEventListener("click", function () {
+      state.unmasteredOnly = !state.unmasteredOnly;
+      if (state.unmasteredOnly && state.objectiveFilter !== "all") {
+        // Clear single-objective lock when turning on Unmastered Only
+        state.objectiveFilter = "all";
+      }
+      safeSaveStorage();
+      syncLocationHash();
+      updateNavBreadcrumb();
+      renderSectionBar(false);
+      syncDrawerQuickButtons();
+      if (state.viewMode === "practice") nextQuestion();
+    });
+    bar.appendChild(unmBtn);
+
+    var sep = document.createElement("span");
+    sep.className = "sec-pill-sep";
+    sep.setAttribute("aria-hidden", "true");
+    bar.appendChild(sep);
+
+    // 3. Section pills with live mastery dots & counts
+    var activePill = state.sectionId === "all" ? allBtn : null;
+    ch.sections.forEach(function (sec) {
+      var stats = getSectionMasteryStats(ch, sec);
+      var b = document.createElement("button");
+      b.type = "button";
+      var isAct = state.sectionId === sec.id;
+      b.className = "sec-pill" + (isAct ? " active" : "");
+      if (isAct) activePill = b;
+
+      var dot = document.createElement("span");
+      dot.className = "sec-dot m-" + stats.status;
+      b.appendChild(dot);
+
+      b.appendChild(document.createTextNode(sec.id + " " + sec.shortTitle + " "));
+
+      var cnt = document.createElement("span");
+      cnt.className = "sec-count";
+      cnt.textContent = stats.mastered === stats.total ? ("✓" + stats.total) : (stats.mastered + "/" + stats.total);
+      b.appendChild(cnt);
+
+      b.addEventListener("click", function () {
+        navigateTo(ch.id, sec.id, "all", state.unmasteredOnly);
+      });
+      bar.appendChild(b);
+    });
+
+    requestAnimationFrame(function () {
+      if (scrollActiveIntoView && activePill && activePill.scrollIntoView) {
+        activePill.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+      }
+      syncSectionBarFades();
+    });
+  }
+
+  function renderActiveFilterStrip() {
+    var strip = document.getElementById("activeFilterStrip");
+    var txt = document.getElementById("activeFilterText");
+    var nextUnmBtn = document.getElementById("filterNextUnmasteredBtn");
+    var clearBtn = document.getElementById("clearFilterBtn");
+    if (!strip || !txt) return;
+
+    var ch = getChapter();
+    var show = false;
+    var celebrate = false;
+    var showNextUnm = false;
+
+    if (state.objectiveFilter !== "all" && ch) {
+      var parts = state.objectiveFilter.split("::");
+      var secId = parts[0];
+      var objText = parts.slice(1).join("::");
+      var st = getMasteryStatus(getObjectiveKey(ch.id, secId, objText));
+      show = true;
+      if (st.code === "confident") {
+        celebrate = true;
+        txt.textContent = "✓ Mastered this objective (" + secId + ")!";
+        showNextUnm = !!findNextUnmasteredObjective(true);
+      } else {
+        txt.textContent = "Focused on 1 objective (" + secId + "): " + objText;
+      }
+      clearBtn.textContent = "All in " + secId + " ✕";
+    } else if (state.unmasteredOnly) {
+      show = true;
+      var rem = getUnmasteredCountInScope();
+      if (state.allMasteredFallback || rem === 0) {
+        celebrate = true;
+        txt.textContent = "✓ All objectives in this scope are mastered! Reviewing full set.";
+        showNextUnm = !!findNextUnmasteredObjective(false);
+        clearBtn.textContent = "Exit Unmastered Mode ✕";
+      } else {
+        txt.textContent = "🎯 Unmastered Only mode · " + rem + " objective" + (rem === 1 ? "" : "s") + " left to master";
+        clearBtn.textContent = "Include Mastered ✕";
+      }
+    }
+
+    strip.classList.toggle("show", show);
+    strip.classList.toggle("celebrate", celebrate);
+    if (nextUnmBtn) nextUnmBtn.style.display = showNextUnm ? "inline-flex" : "none";
+  }
+
+  // ---------------------------------------------------------
+  // Slide-Over Chapter & Objective Navigation Drawer
+  // ---------------------------------------------------------
+  function syncDrawerQuickButtons() {
+    var btn = document.getElementById("navDrawerUnmasteredBtn");
+    if (btn) {
+      btn.classList.toggle("active", state.unmasteredOnly);
+      btn.textContent = state.unmasteredOnly ? "Unmastered Only: On" : "Unmastered Only: Off";
+    }
+  }
+
+  function openNavDrawer(focusSectionId) {
+    state.drawerOpen = true;
+    var ch = getChapter();
+    if (ch) state.expandedChapters[ch.id] = true;
+    syncDrawerQuickButtons();
+    renderNavDrawer();
+
+    document.getElementById("navDrawerBackdrop").classList.add("show");
+    document.getElementById("navDrawer").classList.add("show");
+    var trig = document.getElementById("navTriggerBtn");
+    if (trig) trig.setAttribute("aria-expanded", "true");
+
+    if (focusSectionId) {
+      requestAnimationFrame(function () {
+        var target = document.querySelector('[data-drawer-sec="' + focusSectionId + '"]');
+        if (target && target.scrollIntoView) {
+          target.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }
+      });
+    }
+  }
+
+  function closeNavDrawer() {
+    state.drawerOpen = false;
+    document.getElementById("navDrawerBackdrop").classList.remove("show");
+    document.getElementById("navDrawer").classList.remove("show");
+    var trig = document.getElementById("navTriggerBtn");
+    if (trig) trig.setAttribute("aria-expanded", "false");
+  }
+
+  function renderNavDrawer() {
+    var body = document.getElementById("navDrawerBody");
+    if (!body) return;
+    body.innerHTML = "";
+
+    var query = (state.drawerSearch || "").trim().toLowerCase();
+    var anyMatch = false;
+
+    chapters.forEach(function (ch) {
+      var chStats = getChapterMasteryStats(ch);
+      var pct = chStats.total ? Math.round((chStats.mastered / chStats.total) * 100) : 0;
+      var chTitleMatches = !query || ch.title.toLowerCase().indexOf(query) !== -1;
+
+      var matchingSections = [];
+      ch.sections.forEach(function (sec) {
+        var secLabel = (sec.id + " " + sec.shortTitle + " " + sec.title).toLowerCase();
+        var secMatches = chTitleMatches || secLabel.indexOf(query) !== -1;
+        var matchedObjs = sec.objectives.filter(function (obj) {
+          return secMatches || obj.toLowerCase().indexOf(query) !== -1;
+        });
+        if (matchedObjs.length > 0) {
+          matchingSections.push({ sec: sec, objs: matchedObjs });
+        }
+      });
+
+      if (matchingSections.length === 0) return;
+      anyMatch = true;
+
+      var isExpanded = query.length > 0 || !!state.expandedChapters[ch.id];
+      var card = document.createElement("div");
+      card.className = "drawer-ch-card" + (isExpanded ? "" : " collapsed");
+
+      // Chapter accordion header
+      var hdr = document.createElement("button");
+      hdr.type = "button";
+      hdr.className = "drawer-ch-header";
+      var topRow = document.createElement("div");
+      topRow.className = "drawer-ch-top";
+
+      var titleSpan = document.createElement("span");
+      titleSpan.className = "drawer-ch-title";
+      titleSpan.textContent = (isExpanded ? "▾ " : "▸ ") + ch.title;
+      topRow.appendChild(titleSpan);
+
+      var chChip = document.createElement("span");
+      chChip.className = "nav-progress-chip" + (chStats.mastered === chStats.total && chStats.total > 0 ? " all-done" : "");
+      chChip.textContent = chStats.mastered + "/" + chStats.total;
+      topRow.appendChild(chChip);
+      hdr.appendChild(topRow);
+
+      var barOuter = document.createElement("div");
+      barOuter.className = "drawer-ch-bar";
+      var barFill = document.createElement("div");
+      barFill.className = "drawer-ch-fill";
+      barFill.style.width = pct + "%";
+      barOuter.appendChild(barFill);
+      hdr.appendChild(barOuter);
+
+      hdr.addEventListener("click", function () {
+        state.expandedChapters[ch.id] = !state.expandedChapters[ch.id];
+        renderNavDrawer();
+      });
+      card.appendChild(hdr);
+
+      var content = document.createElement("div");
+      content.className = "drawer-ch-content";
+
+      // All-Chapter Mixed Review row (hidden only when search narrowed to specific items)
+      if (!query || chTitleMatches) {
+        var mixedBtn = document.createElement("button");
+        mixedBtn.type = "button";
+        var isMixedAct = state.chapterId === ch.id && state.sectionId === "all";
+        mixedBtn.className = "drawer-mixed-btn" + (isMixedAct ? " active" : "");
+        mixedBtn.innerHTML = '<span>All Chapter Objectives (Adaptive Mixed)</span><span style="font-size:12px;opacity:0.8;">' + pct + '%</span>';
+        mixedBtn.addEventListener("click", function () {
+          closeNavDrawer();
+          navigateTo(ch.id, "all", "all", state.unmasteredOnly);
+        });
+        content.appendChild(mixedBtn);
+      }
+
+      // Sections & Objectives
+      matchingSections.forEach(function (entry) {
+        var sec = entry.sec;
+        var sStats = getSectionMasteryStats(ch, sec);
+
+        var secBlock = document.createElement("div");
+        secBlock.className = "drawer-sec-block";
+        secBlock.setAttribute("data-drawer-sec", sec.id);
+
+        var secHead = document.createElement("div");
+        secHead.className = "drawer-sec-head";
+
+        var secBtn = document.createElement("button");
+        secBtn.type = "button";
+        var isSecAct = state.chapterId === ch.id && state.sectionId === sec.id && state.objectiveFilter === "all";
+        secBtn.className = "drawer-sec-btn" + (isSecAct ? " active" : "");
+        secBtn.textContent = sec.id + " " + sec.title;
+        secBtn.title = "Practice all objectives in Section " + sec.id;
+        secBtn.addEventListener("click", function () {
+          closeNavDrawer();
+          navigateTo(ch.id, sec.id, "all", state.unmasteredOnly);
+        });
+        secHead.appendChild(secBtn);
+
+        var meta = document.createElement("div");
+        meta.className = "drawer-sec-meta";
+        var sPill = document.createElement("span");
+        sPill.className = "drawer-sec-pill" + (sStats.mastered === sStats.total && sStats.total > 0 ? " done" : "");
+        sPill.textContent = sStats.mastered + "/" + sStats.total;
+        meta.appendChild(sPill);
+        secHead.appendChild(meta);
+        secBlock.appendChild(secHead);
+
+        var objList = document.createElement("div");
+        objList.className = "drawer-obj-list";
+
+        entry.objs.forEach(function (obj) {
+          var key = getObjectiveKey(ch.id, sec.id, obj);
+          var p = state.progress[key];
+          var st = getMasteryStatus(key);
+          var objVal = sec.id + "::" + obj;
+          var isObjAct = state.chapterId === ch.id && state.objectiveFilter === objVal;
+
+          var rowBtn = document.createElement("button");
+          rowBtn.type = "button";
+          rowBtn.className = "drawer-obj-row" + (isObjAct ? " active" : "");
+
+          var sym = document.createElement("span");
+          sym.className = "obj-status-sym m-" + st.code;
+          sym.textContent = st.sym;
+          sym.title = st.label;
+          rowBtn.appendChild(sym);
+
+          var oTxt = document.createElement("span");
+          oTxt.className = "obj-row-text";
+          oTxt.textContent = obj;
+          rowBtn.appendChild(oTxt);
+
+          if (p && p.total > 0) {
+            var sc = document.createElement("span");
+            sc.className = "obj-row-score";
+            sc.textContent = p.right + "/" + p.total;
+            rowBtn.appendChild(sc);
+          }
+
+          rowBtn.addEventListener("click", function () {
+            closeNavDrawer();
+            navigateTo(ch.id, sec.id, objVal, false);
+          });
+          objList.appendChild(rowBtn);
+        });
+
+        secBlock.appendChild(objList);
+        content.appendChild(secBlock);
+      });
+
+      card.appendChild(content);
+      body.appendChild(card);
+    });
+
+    if (!anyMatch) {
+      var empty = document.createElement("div");
+      empty.className = "drawer-empty";
+      empty.textContent = 'No chapters or objectives match "' + state.drawerSearch + '".';
+      body.appendChild(empty);
+    }
+  }
+
+  function navigateTo(chId, secId, objFilter, unmasteredFlag, forcePractice) {
+    state.chapterId = chId;
+    state.sectionId = secId || "all";
+    state.objectiveFilter = objFilter || "all";
+    if (typeof unmasteredFlag === "boolean") state.unmasteredOnly = unmasteredFlag;
+    validateNavigationState();
+    safeSaveStorage();
+    syncLocationHash();
+    updateNavBreadcrumb();
+    renderSectionBar(true);
+    syncDrawerQuickButtons();
+
+    if (forcePractice && state.viewMode !== "practice") {
+      setViewMode("practice");
+    }
+    if (state.viewMode === "practice") {
+      nextQuestion();
+    } else {
+      renderSelfCheck();
+    }
+  }
+
+  function jumpToNextUnmastered(excludeCurrent) {
+    var nxt = findNextUnmasteredObjective(excludeCurrent);
+    if (!nxt) {
+      setFeedback("correct", "<strong>All caught up!</strong> Every objective across all loaded chapters is mastered (Confidently).");
+      return;
+    }
+    closeNavDrawer();
+    navigateTo(nxt.chId, nxt.secId, nxt.objVal, false, true);
+  }
+
+  // ---------------------------------------------------------
+  // Core Practice Engine
+  // ---------------------------------------------------------
   function recordResult(q, isCorrect) {
     var key = getObjectiveKey(q._chapterId, q._sectionId, q.objective);
     if (!state.progress[key]) state.progress[key] = { right: 0, total: 0, recent: [] };
@@ -76,29 +715,10 @@
 
     safeSaveStorage();
     updateStreakUI();
-  }
-
-  function getMasteryStatus(key) {
-    var p = state.progress[key];
-    if (!p || p.total === 0) return { code: "new", label: "Not Started" };
-    var recentRight = p.recent.filter(Boolean).length;
-    if (p.recent.length >= 3 && recentRight / p.recent.length >= 0.8) {
-      return { code: "confident", label: "Confidently" };
-    }
-    if (p.right > 0) return { code: "practicing", label: "With Some Help" };
-    return { code: "practicing", label: "Needs Practice" };
-  }
-
-  // Adaptive weight: surface unstarted & weaker objectives more often
-  function getAdaptiveWeight(chId, secId, objText) {
-    var key = getObjectiveKey(chId, secId, objText);
-    var p = state.progress[key];
-    if (!p || p.total === 0) return 3.5;
-    var recentRight = p.recent.filter(Boolean).length;
-    var rate = p.recent.length ? (recentRight / p.recent.length) : 0;
-    if (p.recent.length >= 3 && rate >= 0.8) return 1.0;
-    if (rate < 0.6) return 4.5;
-    return 2.5;
+    updateNavBreadcrumb();
+    renderSectionBar(false);
+    renderActiveFilterStrip();
+    if (state.drawerOpen) renderNavDrawer();
   }
 
   function applyTheme() {
@@ -134,79 +754,6 @@
     }
   }
 
-  function populateChapterSelect() {
-    var sel = document.getElementById("chapterSelect");
-    sel.innerHTML = "";
-    chapters.forEach(function (ch) {
-      var opt = document.createElement("option");
-      opt.value = ch.id;
-      opt.textContent = ch.title;
-      sel.appendChild(opt);
-    });
-    if (!state.chapterId && chapters.length) state.chapterId = chapters[0].id;
-    sel.value = state.chapterId;
-  }
-
-  function renderSectionBar() {
-    var bar = document.getElementById("sectionBar");
-    bar.innerHTML = "";
-    var ch = getChapter();
-    if (!ch) return;
-
-    var allBtn = document.createElement("button");
-    allBtn.type = "button";
-    allBtn.className = "sec-pill" + (state.sectionId === "all" ? " active" : "");
-    allBtn.textContent = "Adaptive Mixed Review";
-    allBtn.addEventListener("click", function () {
-      state.sectionId = "all";
-      state.objectiveFilter = "all";
-      renderSectionBar();
-      populateObjectiveFilter();
-      if (state.viewMode === "practice") nextQuestion();
-      else renderSelfCheck();
-    });
-    bar.appendChild(allBtn);
-
-    ch.sections.forEach(function (sec) {
-      var b = document.createElement("button");
-      b.type = "button";
-      b.className = "sec-pill" + (state.sectionId === sec.id ? " active" : "");
-      b.textContent = sec.id + " " + sec.shortTitle;
-      b.addEventListener("click", function () {
-        state.sectionId = sec.id;
-        state.objectiveFilter = "all";
-        renderSectionBar();
-        populateObjectiveFilter();
-        if (state.viewMode === "practice") nextQuestion();
-        else renderSelfCheck();
-      });
-      bar.appendChild(b);
-    });
-  }
-
-  function populateObjectiveFilter() {
-    var sel = document.getElementById("objectiveSelect");
-    sel.innerHTML = "";
-    var ch = getChapter();
-    if (!ch) return;
-
-    var allOpt = document.createElement("option");
-    allOpt.value = "all";
-    allOpt.textContent = state.sectionId === "all" ? "All Chapter Objectives (Adaptive)" : "All Objectives in Section " + state.sectionId;
-    sel.appendChild(allOpt);
-
-    ch.sections.forEach(function (sec) {
-      if (state.sectionId !== "all" && sec.id !== state.sectionId) return;
-      sec.objectives.forEach(function (obj) {
-        var o = document.createElement("option");
-        o.value = sec.id + "::" + obj;
-        o.textContent = sec.id + " — " + obj;
-        sel.appendChild(o);
-      });
-    });
-    sel.value = state.objectiveFilter;
-  }
-
   function getEligibleGenerators() {
     var ch = getChapter();
     if (!ch) return [];
@@ -219,6 +766,16 @@
         pool.push({ gen: g, sec: sec, ch: ch });
       });
     });
+
+    state.allMasteredFallback = false;
+    if (state.unmasteredOnly && state.objectiveFilter === "all") {
+      var unmPool = pool.filter(function (item) {
+        var st = getMasteryStatus(getObjectiveKey(item.ch.id, item.sec.id, item.gen.objective));
+        return st.code !== "confident";
+      });
+      if (unmPool.length > 0) return unmPool;
+      state.allMasteredFallback = true;
+    }
     return pool;
   }
 
@@ -334,6 +891,7 @@
     document.getElementById("qObj").textContent = q.objective;
     document.getElementById("qPrompt").innerHTML = q.prompt;
 
+    renderActiveFilterStrip();
     renderVisual();
 
     var answerArea = document.getElementById("answerArea");
@@ -627,7 +1185,14 @@
     var tbody = document.getElementById("selfCheckBody");
     tbody.innerHTML = "";
     var titleEl = document.getElementById("selfCheckTitle");
-    titleEl.textContent = ch.title + " — OpenStax Self Check";
+    var chStats = getChapterMasteryStats(ch);
+    titleEl.textContent = ch.title + " — Self Check (" + chStats.mastered + "/" + chStats.total + " Mastered)";
+
+    var nextUnm = findNextUnmasteredObjective(false);
+    var scNextBtn = document.getElementById("selfCheckNextBtn");
+    if (scNextBtn) {
+      scNextBtn.style.display = nextUnm ? "inline-flex" : "none";
+    }
 
     ch.sections.forEach(function (sec) {
       if (state.sectionId !== "all" && sec.id !== state.sectionId) return;
@@ -663,12 +1228,7 @@
         btn.className = "btn btn-sm";
         btn.textContent = "Practice";
         btn.addEventListener("click", function () {
-          state.sectionId = sec.id;
-          state.objectiveFilter = sec.id + "::" + obj;
-          setViewMode("practice");
-          renderSectionBar();
-          populateObjectiveFilter();
-          nextQuestion();
+          navigateTo(ch.id, sec.id, sec.id + "::" + obj, false, true);
         });
         tdAct.appendChild(btn);
         tr.appendChild(tdAct);
@@ -689,7 +1249,7 @@
     updateKeypadVisibility();
   }
 
-  // Built-in Touch Math Keypad (includes 'none' & 'undefined')
+  // Built-in Touch Math Keypad
   function buildKeypad() {
     var keys = [
       { t: "7" }, { t: "8" }, { t: "9" }, { t: "/", cls: "kp-op" }, { t: "(", cls: "kp-op" },
@@ -772,26 +1332,105 @@
     if (!hasSaved && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
       state.theme = "dark";
     }
+
+    // URL hash takes priority over saved localStorage position if valid
+    applyHashIfPresent();
+    validateNavigationState();
+    syncLocationHash();
+
     applyTheme();
     updateStreakUI();
-    populateChapterSelect();
-    renderSectionBar();
-    populateObjectiveFilter();
+    updateNavBreadcrumb();
+    renderSectionBar(true);
+    syncDrawerQuickButtons();
     buildKeypad();
 
-    document.getElementById("chapterSelect").addEventListener("change", function (e) {
-      state.chapterId = e.target.value;
-      state.sectionId = "all";
-      state.objectiveFilter = "all";
-      renderSectionBar();
-      populateObjectiveFilter();
-      if (state.viewMode === "practice") nextQuestion();
-      else renderSelfCheck();
+    // Navigation Drawer bindings
+    document.getElementById("navTriggerBtn").addEventListener("click", function () {
+      if (state.drawerOpen) closeNavDrawer();
+      else openNavDrawer(state.sectionId !== "all" ? state.sectionId : null);
+    });
+    document.getElementById("navDrawerBackdrop").addEventListener("click", closeNavDrawer);
+    document.getElementById("navDrawerCloseBtn").addEventListener("click", closeNavDrawer);
+
+    document.getElementById("qObjBtn").addEventListener("click", function () {
+      var targetSec = state.currentQ ? state.currentQ._sectionId : (state.sectionId !== "all" ? state.sectionId : null);
+      openNavDrawer(targetSec);
     });
 
-    document.getElementById("objectiveSelect").addEventListener("change", function (e) {
-      state.objectiveFilter = e.target.value;
+    var searchInp = document.getElementById("navSearchInput");
+    var searchClear = document.getElementById("navSearchClearBtn");
+    searchInp.addEventListener("input", function (e) {
+      state.drawerSearch = e.target.value;
+      searchClear.classList.toggle("show", state.drawerSearch.length > 0);
+      renderNavDrawer();
+    });
+    searchClear.addEventListener("click", function () {
+      state.drawerSearch = "";
+      searchInp.value = "";
+      searchClear.classList.remove("show");
+      renderNavDrawer();
+      searchInp.focus();
+    });
+
+    document.getElementById("navNextUnmasteredBtn").addEventListener("click", function () {
+      jumpToNextUnmastered(false);
+    });
+
+    document.getElementById("navDrawerUnmasteredBtn").addEventListener("click", function () {
+      state.unmasteredOnly = !state.unmasteredOnly;
+      if (state.unmasteredOnly && state.objectiveFilter !== "all") {
+        state.objectiveFilter = "all";
+      }
+      safeSaveStorage();
+      syncLocationHash();
+      updateNavBreadcrumb();
+      renderSectionBar(false);
+      syncDrawerQuickButtons();
       if (state.viewMode === "practice") nextQuestion();
+    });
+
+    document.getElementById("clearFilterBtn").addEventListener("click", function () {
+      if (state.objectiveFilter !== "all") {
+        navigateTo(state.chapterId, state.sectionId, "all", state.unmasteredOnly);
+      } else if (state.unmasteredOnly) {
+        navigateTo(state.chapterId, state.sectionId, "all", false);
+      }
+    });
+
+    document.getElementById("filterNextUnmasteredBtn").addEventListener("click", function () {
+      jumpToNextUnmastered(true);
+    });
+
+    document.getElementById("selfCheckNextBtn").addEventListener("click", function () {
+      jumpToNextUnmastered(false);
+    });
+
+    // Section bar edge-fade listeners
+    var secBar = document.getElementById("sectionBar");
+    secBar.addEventListener("scroll", syncSectionBarFades, { passive: true });
+    window.addEventListener("resize", syncSectionBarFades);
+
+    // Escape closes drawer or backup modal
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") {
+        if (state.drawerOpen) closeNavDrawer();
+        var bm = document.getElementById("backupModal");
+        if (bm && bm.classList.contains("show")) bm.classList.remove("show");
+      }
+    });
+
+    // External URL hash navigation (bookmarks / deep links)
+    window.addEventListener("hashchange", function () {
+      if (applyHashIfPresent()) {
+        validateNavigationState();
+        safeSaveStorage();
+        updateNavBreadcrumb();
+        renderSectionBar(true);
+        syncDrawerQuickButtons();
+        if (state.viewMode === "practice") nextQuestion();
+        else renderSelfCheck();
+      }
     });
 
     document.getElementById("tabPractice").addEventListener("click", function () { setViewMode("practice"); });
@@ -840,6 +1479,10 @@
         if (typeof parsed.streak === "number") state.streak = parsed.streak;
         safeSaveStorage();
         updateStreakUI();
+        updateNavBreadcrumb();
+        renderSectionBar(false);
+        renderActiveFilterStrip();
+        if (state.drawerOpen) renderNavDrawer();
         if (state.viewMode === "selfcheck") renderSelfCheck();
         document.getElementById("backupStatus").textContent = "Progress restored successfully!";
       } catch (e) {
@@ -853,6 +1496,10 @@
       state.streak = 0;
       safeSaveStorage();
       updateStreakUI();
+      updateNavBreadcrumb();
+      renderSectionBar(false);
+      renderActiveFilterStrip();
+      if (state.drawerOpen) renderNavDrawer();
       if (state.viewMode === "selfcheck") renderSelfCheck();
       document.getElementById("backupText").value = JSON.stringify({ progress: {}, streak: 0 }, null, 2);
       document.getElementById("backupStatus").textContent = "Progress cleared.";
@@ -864,7 +1511,8 @@
 
   window.AlgebraApp = {
     registerChapter: registerChapter,
-    init: init
+    init: init,
+    syncSectionBarFades: syncSectionBarFades
   };
 
   var _initialized = false;

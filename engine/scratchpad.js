@@ -330,8 +330,16 @@
       workspace.classList.toggle("sp-open", showCard);
       workspace.classList.toggle("sp-stack", prefs.layout === "stack");
     }
+    var isWide = showCard && prefs.layout === "split";
     if (mainWrap) {
-      mainWrap.classList.toggle("sp-wide", showCard && prefs.layout === "split");
+      mainWrap.classList.toggle("sp-wide", isWide);
+    }
+    var secOuter = document.getElementById("sectionBarOuter");
+    if (secOuter) {
+      secOuter.classList.toggle("sp-wide", isWide);
+    }
+    if (window.AlgebraApp && window.AlgebraApp.syncSectionBarFades) {
+      requestAnimationFrame(window.AlgebraApp.syncSectionBarFades);
     }
     if (wrap) {
       wrap.classList.toggle("sp-tall", prefs.heightMode === "tall");

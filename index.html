@@ -20,10 +20,18 @@
 <body>
   <header class="topbar">
     <div class="topbar-left">
-      <div class="app-title">Algebra Practice</div>
-      <select id="chapterSelect" class="chapter-select" aria-label="Select Chapter"></select>
+      <button id="navTriggerBtn" class="nav-trigger-btn" type="button" aria-label="Browse chapters and learning objectives" aria-expanded="false" aria-controls="navDrawer">
+        <span class="nav-trigger-icon" aria-hidden="true">☰</span>
+        <span id="navBreadcrumbText" class="nav-breadcrumb-text">Chapter 3</span>
+        <span id="navProgressChip" class="nav-progress-chip">0/0</span>
+        <span class="nav-chevron" aria-hidden="true">▾</span>
+      </button>
     </div>
     <div class="topbar-right">
+      <div class="topbar-tabs" role="tablist">
+        <button id="tabPractice" class="mode-tab active" type="button" role="tab">Practice</button>
+        <button id="tabSelfCheck" class="mode-tab" type="button" role="tab">Self Check</button>
+      </div>
       <div id="offlinePill" class="offline-pill" title="Running offline from local cache">Offline</div>
       <div id="streakPill" class="streak-pill">Streak: 0</div>
       <button id="scratchToggleBtn" class="icon-btn" type="button" title="Open Apple Pencil scratch pad">✏️ Scratch Pad</button>
@@ -33,13 +41,9 @@
     </div>
   </header>
 
-  <nav id="sectionBar" class="section-bar" aria-label="Sections"></nav>
-
-  <div class="obj-bar">
-    <select id="objectiveSelect" class="obj-select" aria-label="Filter by Learning Objective"></select>
-    <div class="mode-tabs" role="tablist">
-      <button id="tabPractice" class="mode-tab active" type="button" role="tab">Practice</button>
-      <button id="tabSelfCheck" class="mode-tab" type="button" role="tab">Self Check</button>
+  <div id="sectionBarOuter" class="section-bar-outer">
+    <div id="sectionBarInner" class="section-bar-inner">
+      <nav id="sectionBar" class="section-bar" aria-label="Sections and filters"></nav>
     </div>
   </div>
 
@@ -49,8 +53,20 @@
       <section id="practiceCard" class="card">
         <div class="q-meta">
           <span id="qBadge" class="q-badge"></span>
-          <span id="qObj" class="q-obj"></span>
+          <button id="qObjBtn" class="q-obj-btn" type="button" title="Switch chapter, section, or learning objective">
+            <span id="qObj"></span>
+            <span aria-hidden="true">▾</span>
+          </button>
         </div>
+
+        <div id="activeFilterStrip" class="active-filter-strip" role="status" aria-live="polite">
+          <span id="activeFilterText"></span>
+          <div class="filter-strip-actions">
+            <button id="filterNextUnmasteredBtn" class="filter-chip-btn" type="button" style="display:none;">Next Unmastered →</button>
+            <button id="clearFilterBtn" class="filter-chip-btn" type="button">Show All ✕</button>
+          </div>
+        </div>
+
         <div id="qPrompt" class="q-prompt"></div>
 
         <div id="qLayout" class="q-layout">
@@ -129,7 +145,10 @@
 
     <!-- OpenStax Self Check Dashboard -->
     <section id="dashboardCard" class="card dashboard-card">
-      <h2 id="selfCheckTitle" style="margin:0 0 6px 0; font-size:19px;">Self Check</h2>
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:6px;">
+        <h2 id="selfCheckTitle" style="margin:0; font-size:19px;">Self Check</h2>
+        <button id="selfCheckNextBtn" class="btn btn-primary btn-sm" type="button">🎯 Practice Next Unmastered</button>
+      </div>
       <p style="margin:0 0 10px 0; color:var(--text-muted); font-size:14px;">
         Track your mastery of each OpenStax Learning Objective. Score at least 80% over your last 3+ attempts to earn <strong>Confidently</strong>.
       </p>
@@ -149,6 +168,26 @@
       </div>
     </section>
   </main>
+
+  <!-- Slide-Over Chapter & Objective Navigation Drawer -->
+  <div id="navDrawerBackdrop" class="nav-drawer-backdrop" aria-hidden="true"></div>
+  <aside id="navDrawer" class="nav-drawer" role="dialog" aria-modal="true" aria-label="Chapters and Learning Objectives">
+    <div class="nav-drawer-header">
+      <div class="nav-drawer-title">Chapters &amp; Objectives</div>
+      <button id="navDrawerCloseBtn" class="icon-btn" type="button" aria-label="Close navigation drawer">✕</button>
+    </div>
+    <div class="nav-drawer-controls">
+      <div class="nav-search-wrap">
+        <input id="navSearchInput" class="nav-search-input" type="search" placeholder="Filter chapters, sections, or objectives..." autocomplete="off">
+        <button id="navSearchClearBtn" class="nav-search-clear" type="button" aria-label="Clear search">✕</button>
+      </div>
+      <div class="nav-quick-row">
+        <button id="navNextUnmasteredBtn" class="nav-quick-btn primary" type="button">🎯 Focus Next Unmastered</button>
+        <button id="navDrawerUnmasteredBtn" class="nav-quick-btn" type="button">Unmastered Only: Off</button>
+      </div>
+    </div>
+    <div id="navDrawerBody" class="nav-drawer-body"></div>
+  </aside>
 
   <!-- Built-in iPad Touch Math Keypad -->
   <div id="keypadDock" class="keypad-dock hidden" aria-label="Math keypad">
