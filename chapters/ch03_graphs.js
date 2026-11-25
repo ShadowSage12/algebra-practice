@@ -177,35 +177,6 @@
     };
   }
 
-  function gen31CompareLinearHoriz() {
-    var k = M.pick([2, 3, -2, -3, 5]);
-    var eq1 = M.htmlSlopeInt(k, 1, 0);
-    var eq2 = M.wrapMath("<i>y</i> = " + k);
-    return {
-      prompt: "Compare the two equations " + eq1 + " and " + eq2 + ". How do their graphs differ, and where do they intersect?",
-      inputType: "combo",
-      choice: {
-        label: "Which description is accurate?",
-        shortLabel: "Description",
-        options: [
-          { value: "slanted_horiz", label: eq1 + " is a slanted line through (0, 0); " + eq2 + " is a horizontal line" },
-          { value: "both_horiz", label: "Both are horizontal lines with the same y-intercept" },
-          { value: "slanted_vert", label: eq1 + " is slanted through (0, 0); " + eq2 + " is a vertical line" }
-        ],
-        answer: "slanted_horiz",
-        wrongHint: "Notice " + eq2 + " has no x-variable, so y stays constant at " + k + " (horizontal)."
-      },
-      fields: [
-        { type: "point", x: 1, y: k, label: "Intersection point of both lines", shortLabel: "Intersection", placeholder: "(x, y)" }
-      ],
-      steps: [
-        eq1 + " has slope " + k + " and passes through (0, 0) and " + M.htmlPoint(1, k) + ".",
-        eq2 + " has no x-term: y is always " + k + ", making a horizontal line.",
-        "They intersect when " + k + "x = " + k + " ⇒ x = 1, giving the point " + M.htmlPoint(1, k) + "."
-      ]
-    };
-  }
-
   function gen31InterceptsFromGraph() {
     var xInt = M.randNonZero(-5, 5);
     var yInt = M.randNonZero(-5, 5);
@@ -562,14 +533,15 @@
         var rate = M.pick([1.5, 1.75, 2.25, 2.5]);
         var units = M.pick([12, 16, 20]);
         var total = Math.round((base + rate * units) * 100) / 100;
-        var yMax = Math.ceil((base + rate * 25) / 20) * 20;
+        var yStep = 20;
+        var yMax = Math.ceil((base + rate * 25) / yStep) * yStep;
         return {
           prompt: "The equation " + M.wrapMath("<i>P</i> = " + base + " + " + rate + "<i>w</i>") +
             " (graphed in the first quadrant) models a monthly water bill payment <em>P</em> (in dollars) for <em>w</em> units of water used.",
           visual: {
             type: "coordinate_plane", xMin: 0, xMax: 25, yMin: 0, yMax: yMax,
-            gridStepX: 5, gridStepY: Math.max(10, Math.round(yMax / 5)),
-            labelStepX: 5, labelStepY: Math.max(10, Math.round(yMax / 5)),
+            gridStepX: 5, gridStepY: yStep,
+            labelStepX: 5, labelStepY: yStep,
             xAxisLabel: "w", yAxisLabel: "P",
             lines: [{ A: -rate, B: 1, C: base }],
             points: [{ x: 0, y: base }, { x: units, y: total }]
@@ -577,11 +549,11 @@
           choice: {
             label: "Which statement correctly interprets the slope and P-intercept?",
             shortLabel: "Interpretation",
-            options: [
+            options: M.shuffle([
               { value: "right", label: "Slope $" + rate + ": cost increases by $" + rate + " per unit; P-intercept $" + base + ": fixed charge at 0 units" },
               { value: "swapped", label: "Slope $" + base + ": cost increases by $" + base + " per unit; P-intercept $" + rate + ": fixed charge at 0 units" },
               { value: "inverted", label: "Slope $" + rate + ": units used per dollar; P-intercept $" + base + ": maximum units allowed" }
-            ],
+            ]),
             answer: "right",
             wrongHint: "In P = b + mw, the constant " + base + " is the starting charge when w = 0, and " + rate + " is the rate of change per unit."
           },
@@ -601,14 +573,15 @@
         var rate = M.pick([25, 28, 35, 40]);
         var guests = M.pick([40, 50, 60, 80]);
         var total = base + rate * guests;
-        var yMax = Math.ceil((base + rate * 100) / 1000) * 1000;
+        var yStep = 1000;
+        var yMax = Math.ceil((base + rate * 100) / yStep) * yStep;
         return {
           prompt: "The equation " + M.wrapMath("<i>C</i> = " + base + " + " + rate + "<i>g</i>") +
             " (graphed in the first quadrant) models the cost <em>C</em> (in dollars) of a banquet for <em>g</em> guests.",
           visual: {
             type: "coordinate_plane", xMin: 0, xMax: 100, yMin: 0, yMax: yMax,
-            gridStepX: 20, gridStepY: Math.round(yMax / 5),
-            labelStepX: 20, labelStepY: Math.round(yMax / 5),
+            gridStepX: 20, gridStepY: yStep,
+            labelStepX: 20, labelStepY: yStep,
             xAxisLabel: "g", yAxisLabel: "C",
             lines: [{ A: -rate, B: 1, C: base }],
             points: [{ x: 0, y: base }, { x: guests, y: total }]
@@ -616,11 +589,11 @@
           choice: {
             label: "Which statement correctly interprets the slope and C-intercept?",
             shortLabel: "Interpretation",
-            options: [
+            options: M.shuffle([
               { value: "right", label: "Slope $" + rate + ": cost rises by $" + rate + " per guest; C-intercept $" + base + ": fixed venue cost for 0 guests" },
               { value: "swapped", label: "Slope $" + base + ": cost rises by $" + base + " per guest; C-intercept $" + rate + ": fixed venue cost" },
               { value: "inverted", label: "Slope $" + rate + ": total guests per banquet; C-intercept $" + base + ": discount per guest" }
-            ],
+            ]),
             answer: "right",
             wrongHint: "The coefficient of g (" + rate + ") is the cost per guest; the constant (" + base + ") is the fixed setup cost."
           },
@@ -640,14 +613,15 @@
         var pct = M.pick([0.08, 0.10, 0.15]);
         var sales = M.pick([2000, 3000, 4000]);
         var total = Math.round((base + pct * sales) * 100) / 100;
-        var yMax = Math.ceil((base + pct * 5000) / 500) * 500;
+        var yStep = 250;
+        var yMax = Math.ceil((base + pct * 5000) / yStep) * yStep;
         return {
           prompt: "The equation " + M.wrapMath("<i>S</i> = " + base + " + " + pct + "<i>c</i>") +
             " (graphed in the first quadrant) models a retail worker's weekly salary <em>S</em> (in dollars) for weekly sales <em>c</em> (in dollars).",
           visual: {
             type: "coordinate_plane", xMin: 0, xMax: 5000, yMin: 0, yMax: yMax,
-            gridStepX: 1000, gridStepY: Math.round(yMax / 5),
-            labelStepX: 1000, labelStepY: Math.round(yMax / 5),
+            gridStepX: 1000, gridStepY: yStep,
+            labelStepX: 1000, labelStepY: yStep * 2,
             xAxisLabel: "c", yAxisLabel: "S",
             lines: [{ A: -pct, B: 1, C: base }],
             points: [{ x: 0, y: base }, { x: sales, y: total }]
@@ -655,11 +629,11 @@
           choice: {
             label: "Which statement correctly interprets the slope and S-intercept?",
             shortLabel: "Interpretation",
-            options: [
+            options: M.shuffle([
               { value: "right", label: "Slope " + pct + ": salary increases by $" + pct + " per $1 of sales (" + Math.round(pct * 100) + "% commission); S-intercept $" + base + ": weekly base pay" },
               { value: "swapped", label: "Slope $" + base + ": commission per sale; S-intercept $" + pct + ": weekly base pay" },
               { value: "inverted", label: "Slope " + pct + ": sales needed per hour; S-intercept $" + base + ": maximum weekly salary" }
-            ],
+            ]),
             answer: "right",
             wrongHint: "The S-intercept (" + base + ") is the base salary at $0 sales, and the slope (" + pct + ") is the commission earned per $1 of sales."
           },
@@ -924,6 +898,10 @@
   function gen33ParallelSpecial() {
     var px = M.randNonZero(-5, 5), py = M.randNonZero(-5, 5);
     var c = M.randNonZero(-6, 6);
+    // Guarantee (px, py) is strictly off the given line in all 4 templates
+    while (c === px || Math.abs(c) === px || -c === py || c === py) {
+      c = M.randNonZero(-6, 6);
+    }
     var cases = [
       {
         given: M.wrapMath("<i>x</i> = " + c),
@@ -1225,104 +1203,77 @@
 
   function gen34IneqApp() {
     var kind = M.pick(["jobs", "calories"]);
-    var A, B, C, promptHtml, p1, p2, p3, p4, steps;
+    var wantMeet = Math.random() < 0.5;
     if (kind === "jobs") {
       var w1 = M.pick([10, 11, 12, 14]);
       var w2 = M.pick([15, 16.5, 18, 20]);
       var target = M.pick([300, 330, 360, 420]);
-      A = w1; B = w2; C = target;
-      promptHtml = "A student works two part-time jobs: tutoring pays $" + w1 + "/hr (<em>x</em> hours) and lab work pays $" + w2 + "/hr (<em>y</em> hours). They want to earn <strong>at least $" + target + "</strong> this week.";
-      var goodX = Math.ceil(target / (2 * w1)) + 2, goodY = Math.ceil(target / (2 * w2)) + 2;
-      var lowX = Math.floor(target / (3 * w1)), lowY = Math.floor(target / (3 * w2));
+      var testX, testY;
+      if (wantMeet) {
+        testX = Math.ceil(target / (2 * w1)) + M.randInt(1, 3);
+        testY = Math.ceil(target / (2 * w2)) + M.randInt(1, 3);
+      } else {
+        testX = Math.max(2, Math.floor(target / (3 * w1)));
+        testY = Math.max(2, Math.floor(target / (3 * w2)));
+      }
+      var earned = Math.round((w1 * testX + w2 * testY) * 100) / 100;
+      var meets = earned >= target;
       return {
-        prompt: promptHtml + " Write an inequality modeling this situation, then check whether working " + goodX + " hours tutoring and " + goodY + " hours in the lab meets the goal.",
+        prompt: "A student works two part-time jobs: tutoring pays $" + w1 + "/hr (<em>x</em> hours) and lab work pays $" + w2 + "/hr (<em>y</em> hours). They want to earn <strong>at least $" + target + "</strong> this week. Write an inequality modeling this situation, then check whether working " + testX + " hours tutoring and " + testY + " hours in the lab meets the goal.",
         inputType: "combo",
         choice: {
-          label: "Does (" + goodX + ", " + goodY + ") meet the weekly earnings goal?",
-          shortLabel: "Check (" + goodX + ", " + goodY + ")",
+          label: "Does working (" + testX + ", " + testY + ") meet the weekly earnings goal?",
+          shortLabel: "Check (" + testX + ", " + testY + ")",
           options: [
-            { value: "yes", label: "Yes — earns $" + (w1 * goodX + w2 * goodY) + " (≥ $" + target + ")" },
+            { value: "yes", label: "Yes — meets or exceeds $" + target },
             { value: "no", label: "No — falls short of $" + target }
           ],
-          answer: "yes"
+          answer: meets ? "yes" : "no"
         },
         fields: [
-          { type: "inequality", A: A, B: B, C: C, op: ">=", label: "Modeling inequality (in x and y)", shortLabel: "Inequality", placeholder: "e.g. 11x + 16.5y >= 330" }
+          { type: "inequality", A: w1, B: w2, C: target, op: ">=", label: "Modeling inequality (in x and y)", shortLabel: "Inequality", placeholder: "e.g. 12x + 15y >= 300" }
         ],
         steps: [
           "Total weekly earnings = " + w1 + "x + " + w2 + "y.",
           "'At least $" + target + "' means greater than or equal to (≥): " + w1 + "x + " + w2 + "y ≥ " + target + ".",
-          "Substitute (" + goodX + ", " + goodY + "): " + w1 + "(" + goodX + ") + " + w2 + "(" + goodY + ") = $" + (w1 * goodX + w2 * goodY) + " ≥ $" + target + " (Yes)."
+          "Substitute (" + testX + ", " + testY + "): " + w1 + "(" + testX + ") + " + w2 + "(" + testY + ") = $" + earned + ", which is " + (meets ? "≥ $" + target + " (Yes)." : "< $" + target + " (No).")
         ]
       };
     } else {
       var r1 = M.pick([12, 15]), r2 = M.pick([8, 10]);
       var goal = M.pick([400, 500, 600]);
-      A = r1; B = r2; C = goal;
-      var testX = 10, testY = 20;
-      var burned = r1 * testX + r2 * testY;
-      var meets = burned >= goal;
+      var tx, ty;
+      if (wantMeet) {
+        tx = Math.ceil(goal / (2 * r1)) + M.randInt(2, 6);
+        ty = Math.ceil(goal / (2 * r2)) + M.randInt(2, 6);
+      } else {
+        tx = Math.max(5, Math.floor(goal / (3 * r1)));
+        ty = Math.max(5, Math.floor(goal / (3 * r2)));
+      }
+      var burned = r1 * tx + r2 * ty;
+      var meetsGoal = burned >= goal;
       return {
         prompt: "An athlete burns " + r1 + " calories/min running (<em>x</em> minutes) and " + r2 + " calories/min biking (<em>y</em> minutes), and wants to burn <strong>at least " + goal + " calories</strong> today.",
         inputType: "combo",
         choice: {
-          label: "Does running " + testX + " min and biking " + testY + " min reach the goal?",
+          label: "Does running " + tx + " min and biking " + ty + " min reach the goal?",
           shortLabel: "Workout check",
           options: [
             { value: "yes", label: "Yes — meets or exceeds " + goal + " cal" },
             { value: "no", label: "No — burns fewer than " + goal + " cal" }
           ],
-          answer: meets ? "yes" : "no"
+          answer: meetsGoal ? "yes" : "no"
         },
         fields: [
-          { type: "inequality", A: A, B: B, C: C, op: ">=", label: "Modeling inequality (in x and y)", shortLabel: "Inequality", placeholder: "e.g. 15x + 10y >= 500" }
+          { type: "inequality", A: r1, B: r2, C: goal, op: ">=", label: "Modeling inequality (in x and y)", shortLabel: "Inequality", placeholder: "e.g. 12x + 8y >= 400" }
         ],
         steps: [
           "Total calories burned = " + r1 + "x + " + r2 + "y.",
           "'At least " + goal + "' gives " + r1 + "x + " + r2 + "y ≥ " + goal + ".",
-          "At (" + testX + ", " + testY + "): " + r1 + "(" + testX + ") + " + r2 + "(" + testY + ") = " + burned + " calories, which is " + (meets ? "≥ " + goal + " (Yes)." : "< " + goal + " (No).")
+          "At (" + tx + ", " + ty + "): " + r1 + "(" + tx + ") + " + r2 + "(" + ty + ") = " + burned + " calories, which is " + (meetsGoal ? "≥ " + goal + " (Yes)." : "< " + goal + " (No).")
         ]
       };
     }
-  }
-
-  function gen34MisconceptionCheck() {
-    var q = M.pick([
-      {
-        prompt: "<strong>Concept Check (OpenStax #281):</strong> Lester claims that <em>every</em> inequality with a <strong>&gt;</strong> sign is shaded above the line, so " + M.htmlStdForm(2, -3, 6, ">") + " must be shaded above its boundary line. Is Lester correct?",
-        options: [
-          { value: "no_flip", label: "No — dividing by −3 flips > to <, so it shades BELOW the line" },
-          { value: "yes_above", label: "Yes — any > sign always shades above the boundary line" },
-          { value: "no_solid", label: "No — it only fails because the line is solid" }
-        ],
-        answer: "no_flip",
-        steps: [
-          "Solve 2x − 3y > 6 for y: −3y > −2x + 6.",
-          "Divide by −3 and FLIP the inequality sign: y < (2/3)x − 2.",
-          "Because y < ..., the solution region is actually BELOW the line — never rely on the original sign without solving for y or using a test point!"
-        ]
-      },
-      {
-        prompt: "<strong>Concept Check (OpenStax #282):</strong> Why is the boundary line of " + M.htmlSlopeInt(2, 1, -1, ">=") + " drawn <strong>solid</strong>, while " + M.htmlSlopeInt(2, 1, -1, ">") + " is drawn <strong>dashed</strong>?",
-        options: [
-          { value: "included", label: "Solid means points ON the boundary satisfy ≥; dashed means they do NOT satisfy >" },
-          { value: "slope", label: "Solid is used for positive slopes and dashed for negative slopes" },
-          { value: "shade", label: "Solid means shade above and dashed means shade below" }
-        ],
-        answer: "included",
-        steps: [
-          "Points on y = 2x − 1 make y ≥ 2x − 1 TRUE (equal counts), so they are included with a solid line.",
-          "Points on y = 2x − 1 make y > 2x − 1 FALSE, so they are excluded with a dashed line."
-        ]
-      }
-    ]);
-    return {
-      prompt: q.prompt,
-      inputType: "choice",
-      options: q.options,
-      answer: q.answer,
-      steps: q.steps
-    };
   }
 
   // =========================================================
@@ -1517,29 +1468,36 @@
       var people = M.shuffle(["Jenny", "Randy", "Dennis", "Raul", "Beth", "Chris", "Liz", "Matt"]).slice(0, 4);
       var dupIdx = M.randInt(0, 3);
       leftItems = people;
-      rightItems = [
+      var rawEmails = [
         people[0].toLowerCase() + "@edu",
         people[1].toLowerCase() + "@mail",
         people[2].toLowerCase() + "@aol",
         people[3].toLowerCase() + "@mail",
         people[dupIdx].toLowerCase() + "2@edu"
       ];
+      rightItems = M.shuffle(rawEmails);
       arrows = [
-        { from: 0, to: 0 }, { from: 1, to: 1 }, { from: 2, to: 2 }, { from: 3, to: 3 },
-        { from: dupIdx, to: 4 }
+        { from: 0, to: rightItems.indexOf(rawEmails[0]) },
+        { from: 1, to: rightItems.indexOf(rawEmails[1]) },
+        { from: 2, to: rightItems.indexOf(rawEmails[2]) },
+        { from: 3, to: rightItems.indexOf(rawEmails[3]) },
+        { from: dupIdx, to: rightItems.indexOf(rawEmails[4]) }
       ];
       leftTitle = "Name"; rightTitle = "Email";
       isFunc = false;
       reason = "'" + people[dupIdx] + "' has TWO arrows leaving it (two email addresses), so it is NOT a function.";
     } else {
       var nums = M.shuffle([-3, -2, -1, 1, 2, 3, 4]).slice(0, 4).sort(function (a, b) { return a - b; });
-      var outs = M.shuffle([-5, -2, 0, 3, 5, 7, 9]).slice(0, 5).sort(function (a, b) { return a - b; });
+      var outs = M.shuffle([-5, -2, 0, 3, 5, 7, 9]).slice(0, 5);
       var badIdx = M.randInt(0, 3);
       leftItems = nums;
-      rightItems = outs;
+      rightItems = outs.slice().sort(function (a, b) { return a - b; });
       arrows = [
-        { from: 0, to: 0 }, { from: 1, to: 1 }, { from: 2, to: 2 }, { from: 3, to: 3 },
-        { from: badIdx, to: 4 }
+        { from: 0, to: rightItems.indexOf(outs[0]) },
+        { from: 1, to: rightItems.indexOf(outs[1]) },
+        { from: 2, to: rightItems.indexOf(outs[2]) },
+        { from: 3, to: rightItems.indexOf(outs[3]) },
+        { from: badIdx, to: rightItems.indexOf(outs[4]) }
       ];
       leftTitle = "Input"; rightTitle = "Output";
       isFunc = false;
@@ -1680,10 +1638,10 @@
         choice: {
           label: "Which is the independent variable and which is the dependent variable?",
           shortLabel: "Variables",
-          options: [
+          options: M.shuffle([
             { value: "x_ind", label: "Independent: x (books); Dependent: C (cost)" },
             { value: "c_ind", label: "Independent: C (cost); Dependent: x (books)" }
-          ],
+          ]),
           answer: "x_ind"
         },
         fields: [
@@ -1707,10 +1665,10 @@
         choice: {
           label: "Identify the independent and dependent variables:",
           shortLabel: "Variables",
-          options: [
+          options: M.shuffle([
             { value: "t_ind", label: "Independent: t (weeks); Dependent: N (shows)" },
             { value: "n_ind", label: "Independent: N (shows); Dependent: t (weeks)" }
-          ],
+          ]),
           answer: "t_ind"
         },
         fields: [
@@ -1904,11 +1862,11 @@
       {
         family: "Constant",
         curves: [{ kind: "fn", fn: function () { return k; }, arrowStart: true, arrowEnd: true }],
-        correct: M.wrapMath("<i>f</i>(<i>x</i>) = " + k),
+        correct: M.wrapMath("<i>f</i>(<i>x</i>) = " + (k < 0 ? "&minus;" + Math.abs(k) : k)),
         distractors: [
-          M.wrapMath("<i>f</i>(<i>x</i>) = " + k + "<i>x</i>"),
-          M.wrapMath("<i>f</i>(<i>x</i>) = <i>x</i>" + (k > 0 ? " + " + k : " &minus; " + Math.abs(k))),
-          M.wrapMath("<i>f</i>(<i>x</i>) = " + (-k))
+          M.htmlSlopeInt(k, 1, 0, "=", "<i>f</i>(<i>x</i>)"),
+          M.htmlSlopeInt(1, 1, k, "=", "<i>f</i>(<i>x</i>)"),
+          M.wrapMath("<i>f</i>(<i>x</i>) = " + (-k < 0 ? "&minus;" + Math.abs(k) : (-k)))
         ],
         dom: "(-inf, inf)", rng: "[" + k + ", " + k + "]",
         steps: [
@@ -1923,7 +1881,7 @@
         distractors: [
           M.htmlSlopeInt(-a, 1, k, "=", "<i>f</i>(<i>x</i>)"),
           M.htmlSlopeInt(a, 1, -k, "=", "<i>f</i>(<i>x</i>)"),
-          M.wrapMath("<i>f</i>(<i>x</i>) = " + a + "|<i>x</i>|" + (k > 0 ? " + " + k : " &minus; " + Math.abs(k)))
+          M.wrapMath("<i>f</i>(<i>x</i>) = " + (a < 0 ? "&minus;" + Math.abs(a) : a) + "|<i>x</i>|" + (k > 0 ? " + " + k : " &minus; " + Math.abs(k)))
         ],
         dom: "(-inf, inf)", rng: "(-inf, inf)",
         steps: [
@@ -2091,8 +2049,8 @@
         inputType: "multi_fields",
         fields: [
           { type: "number", value: r + vShift, label: M.wrapMath("Find <i>f</i>(0)"), shortLabel: "f(0)", placeholder: "number" },
-          { type: "set", isNumeric: true, values: zeros, label: M.wrapMath("Values of <i>x</i> when <i>f</i>(<i>x</i>) = 0"), shortLabel: "x when f(x)=0", placeholder: "e.g. -4, 4 or none" },
-          { type: "point_list", points: xInts, label: "x-intercept(s)", shortLabel: "x-intercepts", placeholder: "e.g. (-4, 0), (4, 0) or none" },
+          { type: "set", isNumeric: true, values: zeros, label: M.wrapMath("Values of <i>x</i> when <i>f</i>(<i>x</i>) = 0"), shortLabel: "x when f(x)=0", placeholder: "e.g. -2, 2 or none" },
+          { type: "point_list", points: xInts, label: "x-intercept(s)", shortLabel: "x-intercepts", placeholder: "e.g. (-2, 0), (2, 0) or none" },
           { type: "interval", canonical: "[" + (-r) + ", " + r + "]", label: "Domain", shortLabel: "Domain", placeholder: "[a, b]" },
           { type: "interval", canonical: "[" + vShift + ", " + (r + vShift) + "]", label: "Range", shortLabel: "Range", placeholder: "[c, d]" }
         ],
@@ -2120,7 +2078,7 @@
         fields: [
           { type: "number", value: 0, label: M.wrapMath("Find <i>f</i>(0)"), shortLabel: "f(0)", placeholder: "number" },
           { type: "number", value: sign * amp, label: M.wrapMath("Find <i>f</i>(<span class='m-frac'><span class='m-num'>&pi;</span><span class='m-den'>2</span></span>)"), shortLabel: "f(π/2)", placeholder: "number" },
-          { type: "set", isNumeric: true, values: zeros, label: M.wrapMath("Values of <i>x</i> on [&minus;2&pi;, 2&pi;] where <i>f</i>(<i>x</i>) = 0"), shortLabel: "Zeros", placeholder: "-2π, -π, 0, π, 2π" },
+          { type: "set", isNumeric: true, values: zeros, label: M.wrapMath("Values of <i>x</i> on [&minus;2&pi;, 2&pi;] where <i>f</i>(<i>x</i>) = 0"), shortLabel: "Zeros", placeholder: "e.g. -π, 0, π or none" },
           { type: "interval", canonical: "(-inf, inf)", label: "Domain", shortLabel: "Domain", placeholder: "interval" },
           { type: "interval", canonical: "[" + (-amp) + ", " + amp + "]", label: "Range", shortLabel: "Range", placeholder: "[min, max]" }
         ],
@@ -2135,7 +2093,7 @@
   }
 
   // =========================================================
-  // REGISTER CHAPTER 3 PLUGIN (48 Generators, 26/26 OpenStax Objectives)
+  // REGISTER CHAPTER 3 PLUGIN (46 Generators, 26/26 OpenStax Objectives)
   // =========================================================
   window.AlgebraApp.registerChapter({
     id: "ch03",
@@ -2155,11 +2113,10 @@
         generators: [
           { id: "3.1_quad", objective: "Plot points in a rectangular coordinate system", generate: gen31Quadrant },
           { id: "3.1_plot", objective: "Plot points in a rectangular coordinate system", generate: gen31PlotPoints },
-          { id: "3.1_sol", objective: "Graph a linear equation by plotting points", generate: gen31VerifySolutions },
+          { id: "3.1_sol", objective: "Plot points in a rectangular coordinate system", generate: gen31VerifySolutions },
           { id: "3.1_lin", objective: "Graph a linear equation by plotting points", generate: gen31GraphLinear },
           { id: "3.1_hv", objective: "Graph vertical and horizontal lines", generate: gen31GraphHV },
           { id: "3.1_pair", objective: "Graph vertical and horizontal lines", generate: gen31GraphPairLines },
-          { id: "3.1_cmphv", objective: "Graph vertical and horizontal lines", generate: gen31CompareLinearHoriz },
           { id: "3.1_intg", objective: "Find the x- and y-intercepts", generate: gen31InterceptsFromGraph },
           { id: "3.1_inte", objective: "Find the x- and y-intercepts", generate: gen31InterceptsFromEq },
           { id: "3.1_gint", objective: "Graph a line using the intercepts", generate: gen31GraphIntercepts },
@@ -2225,7 +2182,6 @@
         generators: [
           { id: "3.4_ver", objective: "Verify solutions to an inequality in two variables", generate: gen34VerifyIneq },
           { id: "3.4_read", objective: "Recognize the relation between the solutions of an inequality and its graph", generate: gen34ReadIneqGraph },
-          { id: "3.4_misc", objective: "Recognize the relation between the solutions of an inequality and its graph", generate: gen34MisconceptionCheck },
           { id: "3.4_grsi", objective: "Graph linear inequalities in two variables", generate: gen34GraphIneqSlopeInt },
           { id: "3.4_grstd", objective: "Graph linear inequalities in two variables", generate: gen34GraphIneqStdAndHV },
           { id: "3.4_app", objective: "Solve applications using linear inequalities in two variables", generate: gen34IneqApp }
