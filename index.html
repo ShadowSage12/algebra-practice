@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>OpenStax Algebra Practice</title>
+  <meta name="description" content="Modular offline practice, interactive graphing, and Apple Pencil scratch pad for OpenStax Intermediate Algebra 2e.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Algebra">
+  <meta name="theme-color" content="#2563eb" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1e293b" media="(prefers-color-scheme: dark)">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png">
+  <link rel="icon" type="image/svg+xml" href="./icons/favicon.svg">
+  <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="app-title">Algebra Practice</div>
+      <select id="chapterSelect" class="chapter-select" aria-label="Select Chapter"></select>
+    </div>
+    <div class="topbar-right">
+      <div id="offlinePill" class="offline-pill" title="Running offline from local cache">Offline</div>
+      <div id="streakPill" class="streak-pill">Streak: 0</div>
+      <button id="scratchToggleBtn" class="icon-btn" type="button" title="Open Apple Pencil scratch pad">✏️ Scratch Pad</button>
+      <button id="keypadToggleBtn" class="icon-btn active" type="button" title="Toggle built-in math keypad">Keypad: On</button>
+      <button id="backupBtn" class="icon-btn" type="button" title="Backup or restore progress">Backup</button>
+      <button id="themeBtn" class="icon-btn" type="button" aria-label="Toggle dark mode">🌙</button>
+    </div>
+  </header>
+
+  <nav id="sectionBar" class="section-bar" aria-label="Sections"></nav>
+
+  <div class="obj-bar">
+    <select id="objectiveSelect" class="obj-select" aria-label="Filter by Learning Objective"></select>
+    <div class="mode-tabs" role="tablist">
+      <button id="tabPractice" class="mode-tab active" type="button" role="tab">Practice</button>
+      <button id="tabSelfCheck" class="mode-tab" type="button" role="tab">Self Check</button>
+    </div>
+  </div>
+
+  <main id="mainWrap" class="main-wrap">
+    <div id="workspaceGrid" class="workspace-grid">
+      <!-- Practice Card -->
+      <section id="practiceCard" class="card">
+        <div class="q-meta">
+          <span id="qBadge" class="q-badge"></span>
+          <span id="qObj" class="q-obj"></span>
+        </div>
+        <div id="qPrompt" class="q-prompt"></div>
+
+        <div id="qLayout" class="q-layout">
+          <div id="visualBox" class="visual-box" style="display:none;"></div>
+          <div>
+            <div id="answerArea" class="answer-area"></div>
+            <div class="action-row">
+              <button id="checkBtn" class="btn btn-primary" type="button">Check Answer</button>
+              <button id="hintBtn" class="btn" type="button">Hint</button>
+              <button id="solutionBtn" class="btn" type="button">Show Steps</button>
+              <button id="nextBtn" class="btn" type="button">Skip / New Problem</button>
+            </div>
+            <div id="feedbackBox" class="feedback-box" role="status" aria-live="polite"></div>
+            <div id="hintsBox" class="hints-box">
+              <div class="hints-title">Step-by-Step Guide</div>
+              <ol id="hintList" class="hint-list"></ol>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Apple Pencil Scratch Pad -->
+      <section id="scratchpadCard" class="card scratchpad-card" aria-label="Scratch pad">
+        <div class="sp-header">
+          <div class="sp-title">✏️ Working Out Scratch Pad</div>
+          <div class="sp-header-actions">
+            <button id="spPencilOnlyBtn" class="sp-tool-btn" type="button" title="Ignore finger touches for Apple Pencil palm rejection">Pencil Only: Off</button>
+            <button id="spAutoClearBtn" class="sp-tool-btn active" type="button" title="Clear notes automatically on next problem">Auto-Clear: On</button>
+            <button id="spLayoutBtn" class="sp-tool-btn sp-layout-only-wide" type="button">Stack Below</button>
+            <button id="spHeightBtn" class="sp-tool-btn" type="button">Tall</button>
+            <button id="spCloseBtn" class="sp-tool-btn" type="button" aria-label="Close scratch pad">✕</button>
+          </div>
+        </div>
+
+        <div class="sp-toolbar">
+          <div class="sp-group">
+            <button id="spPenBtn" class="sp-tool-btn active" type="button">Pen</button>
+            <button id="spEraserBtn" class="sp-tool-btn" type="button">Eraser</button>
+          </div>
+          <div class="sp-sep"></div>
+          <div class="sp-group" aria-label="Ink color">
+            <button class="sp-swatch sp-swatch-auto active" type="button" data-color="auto" title="Auto ink (adapts to Light/Dark mode)"></button>
+            <button class="sp-swatch" type="button" data-color="#2563eb" style="background:#2563eb;" title="Blue ink"></button>
+            <button class="sp-swatch" type="button" data-color="#dc2626" style="background:#dc2626;" title="Red ink"></button>
+            <button class="sp-swatch" type="button" data-color="#16a34a" style="background:#16a34a;" title="Green ink"></button>
+          </div>
+          <div class="sp-sep"></div>
+          <div class="sp-group" aria-label="Stroke width">
+            <button class="sp-size-btn" type="button" data-size="1.6" title="Fine"><span class="sp-dot" style="width:4px;height:4px;"></span></button>
+            <button class="sp-size-btn active" type="button" data-size="2.6" title="Medium"><span class="sp-dot" style="width:7px;height:7px;"></span></button>
+            <button class="sp-size-btn" type="button" data-size="4.8" title="Thick"><span class="sp-dot" style="width:11px;height:11px;"></span></button>
+          </div>
+          <div class="sp-sep"></div>
+          <select id="spPaperSelect" class="sp-paper-select" aria-label="Paper style">
+            <option value="grid">Graph Paper</option>
+            <option value="dot">Dot Grid</option>
+            <option value="ruled">Ruled Lines</option>
+            <option value="blank">Blank</option>
+          </select>
+          <div class="sp-group" style="margin-left:auto;">
+            <button id="spUndoBtn" class="sp-tool-btn" type="button" disabled>Undo</button>
+            <button id="spRedoBtn" class="sp-tool-btn" type="button" disabled>Redo</button>
+            <button id="spClearBtn" class="sp-tool-btn" type="button">Clear</button>
+          </div>
+        </div>
+
+        <div id="spCanvasWrap" class="sp-canvas-wrap" data-paper="grid">
+          <canvas id="scratchCanvas"></canvas>
+        </div>
+
+        <div class="sp-footer">
+          <span id="spStatus" class="sp-status"></span>
+        </div>
+      </section>
+    </div>
+
+    <!-- OpenStax Self Check Dashboard -->
+    <section id="dashboardCard" class="card dashboard-card">
+      <h2 id="selfCheckTitle" style="margin:0 0 6px 0; font-size:19px;">Self Check</h2>
+      <p style="margin:0 0 10px 0; color:var(--text-muted); font-size:14px;">
+        Track your mastery of each OpenStax Learning Objective. Score at least 80% over your last 3+ attempts to earn <strong>Confidently</strong>.
+      </p>
+      <div style="overflow-x:auto;">
+        <table class="obj-table">
+          <thead>
+            <tr>
+              <th>Sec.</th>
+              <th>I can...</th>
+              <th>Score</th>
+              <th>Mastery</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="selfCheckBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- Built-in iPad Touch Math Keypad -->
+  <div id="keypadDock" class="keypad-dock hidden" aria-label="Math keypad">
+    <div id="keypadInner" class="keypad-inner"></div>
+  </div>
+
+  <!-- Export / Import Backup Modal -->
+  <div id="backupModal" class="modal-backdrop" role="dialog" aria-modal="true">
+    <div class="modal">
+      <h3>Backup &amp; Restore Progress</h3>
+      <p style="margin:0 0 10px 0; font-size:14px; color:var(--text-muted);">
+        Your progress auto-saves locally on your iPad. Download a JSON backup or paste one below to transfer across devices.
+      </p>
+      <textarea id="backupText" aria-label="Progress JSON"></textarea>
+      <div id="backupStatus" style="margin-top:8px; font-size:13px; color:var(--accent); font-weight:600;"></div>
+      <div class="action-row" style="margin-top:12px;">
+        <button id="downloadBackupBtn" class="btn btn-primary btn-sm" type="button">Download JSON</button>
+        <button id="importBackupBtn" class="btn btn-sm" type="button">Restore Pasted JSON</button>
+        <button id="resetProgressBtn" class="btn btn-sm" type="button" style="color:var(--danger);">Reset All</button>
+        <button id="closeBackupBtn" class="btn btn-sm" type="button" style="margin-left:auto;">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Core Engine (classic scripts for offline Sitecase compatibility) -->
+  <script src="engine/math_utils.js"></script>
+  <script src="engine/grader.js"></script>
+  <script src="engine/renderers.js"></script>
+  <script src="engine/scratchpad.js"></script>
+  <script src="engine/core.js"></script>
+
+  <!-- Chapter Plugins: add new <script src="chapters/chXX_name.js"></script> lines here -->
+  <script src="chapters/ch03_graphs.js"></script>
+
+  <script>
+    window.AlgebraApp.init();
+    (function () {
+      var pill = document.getElementById("offlinePill");
+      function syncNet() {
+        if (pill) pill.classList.toggle("show", typeof navigator !== "undefined" && navigator.onLine === false);
+      }
+      window.addEventListener("online", syncNet);
+      window.addEventListener("offline", syncNet);
+      syncNet();
+      if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost" || location.hostname === "127.0.0.1")) {
+        window.addEventListener("load", function () {
+          navigator.serviceWorker.register("./sw.js").catch(function () {});
+        });
+      }
+    })();
+  </script>
+</body>
+</html>
