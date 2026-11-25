@@ -510,6 +510,23 @@
     init: init,
     redraw: redraw,
     syncVisibility: applyLayoutClasses,
+    getPrefs: function () {
+      return Object.assign({}, prefs);
+    },
+    applyPrefs: function (nextPrefs) {
+      if (!nextPrefs || typeof nextPrefs !== "object") return;
+      for (var k in nextPrefs) {
+        if (Object.prototype.hasOwnProperty.call(prefs, k)) {
+          prefs[k] = nextPrefs[k];
+        }
+      }
+      savePrefs();
+      syncToolbarUI();
+      syncCanvasTouchAction();
+      updateDefaultStatus();
+      applyLayoutClasses();
+      redraw();
+    },
     onNewQuestion: function () {
       if (prefs.autoClear && strokes.length > 0) {
         clearCanvas(true);

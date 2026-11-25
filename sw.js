@@ -1,5 +1,5 @@
 /* OpenStax Algebra Practice — Offline Service Worker (GitHub Pages PWA) */
-var CACHE_VERSION = "algebra-practice-v2";
+var CACHE_VERSION = "algebra-practice-v3";
 
 var CORE_ASSETS = [
   "./",

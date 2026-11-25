@@ -26,7 +26,9 @@
     keypadEnabled: true,
     theme: "light",
     streak: 0,
-    progress: {}
+    progress: {},
+    lastBackupAt: null,
+    restoreMode: "merge"
   };
 
   function safeLoadStorage() {
@@ -42,6 +44,7 @@
       if (typeof saved.sectionId === "string" && saved.sectionId) state.sectionId = saved.sectionId;
       if (typeof saved.objectiveFilter === "string" && saved.objectiveFilter) state.objectiveFilter = saved.objectiveFilter;
       if (typeof saved.unmasteredOnly === "boolean") state.unmasteredOnly = saved.unmasteredOnly;
+      if (typeof saved.lastBackupAt === "string" && saved.lastBackupAt) state.lastBackupAt = saved.lastBackupAt;
     } catch (e) {}
   }
 
@@ -55,7 +58,8 @@
         chapterId: state.chapterId,
         sectionId: state.sectionId,
         objectiveFilter: state.objectiveFilter,
-        unmasteredOnly: state.unmasteredOnly
+        unmasteredOnly: state.unmasteredOnly,
+        lastBackupAt: state.lastBackupAt
       }));
     } catch (e) {}
   }
@@ -718,6 +722,7 @@
     updateNavBreadcrumb();
     renderSectionBar(false);
     renderActiveFilterStrip();
+    updateBackupNudgeUI();
     if (state.drawerOpen) renderNavDrawer();
   }
 
@@ -1318,11 +1323,422 @@
     inp.classList.remove("is-correct", "is-wrong");
   }
 
+  // ---------------------------------------------------------
+  // Backup & Restore v2 (Timestamped, File Import, Share Sheet, Smart Merge)
+  // ---------------------------------------------------------
+  function getTotalAttempts() {
+    var total = 0;
+    for (var k in state.progress) {
+      if (Object.prototype.hasOwnProperty.call(state.progress, k)) {
+        total += (state.progress[k] && state.progress[k].total) || 0;
+      }
+    }
+    return total;
+  }
+
+  function getProgressCounts(progressObj) {
+    var tracked = 0, mastered = 0, attempts = 0;
+    for (var k in progressObj) {
+      if (!Object.prototype.hasOwnProperty.call(progressObj, k)) continue;
+      var p = progressObj[k];
+      if (!p || !p.total) continue;
+      tracked++;
+      attempts += p.total;
+      var recent = Array.isArray(p.recent) ? p.recent : [];
+      var rr = recent.filter(Boolean).length;
+      if (recent.length >= 3 && rr / recent.length >= 0.8) mastered++;
+    }
+    return { tracked: tracked, mastered: mastered, attempts: attempts };
+  }
+
+  function formatRelativeTime(isoStr) {
+    if (!isoStr) return "Never";
+    var dt = new Date(isoStr);
+    if (isNaN(dt.getTime())) return "Never";
+    var diffMs = Date.now() - dt.getTime();
+    if (diffMs < 60 * 1000) return "Just now";
+    var mins = Math.floor(diffMs / 60000);
+    if (mins < 60) return mins + " min" + (mins === 1 ? "" : "s") + " ago";
+    var hrs = Math.floor(mins / 60);
+    if (hrs < 24) return hrs + " hour" + (hrs === 1 ? "" : "s") + " ago";
+    var days = Math.floor(hrs / 24);
+    if (days < 30) return days + " day" + (days === 1 ? "" : "s") + " ago";
+    return dt.toLocaleDateString();
+  }
+
+  function isBackupNudgeDue() {
+    var attempts = getTotalAttempts();
+    if (attempts < 10) return false;
+    if (!state.lastBackupAt) return true;
+    var dt = new Date(state.lastBackupAt);
+    if (isNaN(dt.getTime())) return true;
+    var days = (Date.now() - dt.getTime()) / (1000 * 60 * 60 * 24);
+    return days >= 14;
+  }
+
+  function updateBackupNudgeUI() {
+    var due = isBackupNudgeDue();
+    var dot = document.getElementById("backupNudgeDot");
+    if (dot) dot.classList.toggle("show", due);
+
+    var lastEl = document.getElementById("backupLastText");
+    var sumEl = document.getElementById("backupSummaryText");
+    var nudgeEl = document.getElementById("backupNudgeText");
+    var barEl = document.getElementById("backupMetaBar");
+
+    if (lastEl) lastEl.textContent = "Last backed up: " + formatRelativeTime(state.lastBackupAt);
+    if (sumEl) {
+      var counts = getProgressCounts(state.progress);
+      sumEl.textContent = counts.tracked + " obj tracked · " + counts.mastered + " mastered · streak " + state.streak;
+    }
+    if (nudgeEl && barEl) {
+      barEl.classList.toggle("nudge", due);
+      if (due) {
+        nudgeEl.style.display = "block";
+        nudgeEl.textContent = state.lastBackupAt
+          ? "Reminder: It's been over 2 weeks since your last backup. Save a copy to Files or iCloud Drive."
+          : "Tip: You've built up progress! Save a backup to Files in case iPadOS clears storage.";
+      } else {
+        nudgeEl.style.display = "none";
+      }
+    }
+  }
+
+  function buildBackupPayload() {
+    var payload = {
+      app: "openstax-algebra-practice",
+      version: 2,
+      exportedAt: new Date().toISOString(),
+      progress: state.progress,
+      streak: state.streak,
+      preferences: {
+        theme: state.theme,
+        keypadEnabled: state.keypadEnabled,
+        chapterId: state.chapterId,
+        sectionId: state.sectionId,
+        objectiveFilter: state.objectiveFilter,
+        unmasteredOnly: state.unmasteredOnly,
+        scratchpad: window.ScratchPad && window.ScratchPad.getPrefs ? window.ScratchPad.getPrefs() : null
+      }
+    };
+    return JSON.stringify(payload, null, 2);
+  }
+
+  function getBackupFilename() {
+    var d = new Date();
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, "0");
+    var day = String(d.getDate()).padStart(2, "0");
+    return "algebra-backup-" + y + "-" + m + "-" + day + ".json";
+  }
+
+  function markBackupCompleted(statusMsg) {
+    state.lastBackupAt = new Date().toISOString();
+    safeSaveStorage();
+    updateBackupNudgeUI();
+    setBackupStatus(statusMsg, "is-success");
+  }
+
+  function setBackupStatus(msg, cls) {
+    var el = document.getElementById("backupStatus");
+    if (!el) return;
+    el.className = "backup-status" + (cls ? " " + cls : "");
+    el.textContent = msg || "";
+  }
+
+  function setRestoreMode(mode) {
+    state.restoreMode = mode === "overwrite" ? "overwrite" : "merge";
+    var mBtn = document.getElementById("restoreModeMergeBtn");
+    var oBtn = document.getElementById("restoreModeOverwriteBtn");
+    var desc = document.getElementById("restoreModeDesc");
+    var applyBtn = document.getElementById("applyRestoreBtn");
+    var prefsChk = document.getElementById("restorePrefsCheck");
+
+    if (mBtn) mBtn.classList.toggle("active", state.restoreMode === "merge");
+    if (oBtn) oBtn.classList.toggle("active", state.restoreMode === "overwrite");
+    if (desc) {
+      desc.innerHTML = state.restoreMode === "merge"
+        ? "<strong>Smart Merge</strong> combines both devices—adding missing objectives and keeping the stronger mastery record without double-counting."
+        : "<strong>Overwrite All</strong> replaces your current progress and streak completely with the backup file.";
+    }
+    if (applyBtn) {
+      applyBtn.textContent = state.restoreMode === "merge"
+        ? "Apply Restore (Smart Merge)"
+        : "Apply Restore (Overwrite All)";
+    }
+    if (prefsChk) {
+      prefsChk.checked = state.restoreMode === "overwrite";
+    }
+  }
+
+  function sanitizeProgressMap(rawProg) {
+    var out = {};
+    if (!rawProg || typeof rawProg !== "object" || Array.isArray(rawProg)) return null;
+    for (var k in rawProg) {
+      if (!Object.prototype.hasOwnProperty.call(rawProg, k)) continue;
+      var entry = rawProg[k];
+      if (!entry || typeof entry !== "object") continue;
+      var total = Math.max(0, Math.round(Number(entry.total) || 0));
+      var right = Math.max(0, Math.min(total, Math.round(Number(entry.right) || 0)));
+      var recent = Array.isArray(entry.recent)
+        ? entry.recent.slice(-5).map(Boolean)
+        : [];
+      out[k] = { right: right, total: total, recent: recent };
+    }
+    return out;
+  }
+
+  function parseBackupText(rawText) {
+    if (!rawText || !rawText.trim()) {
+      return { ok: false, error: "Choose a .json backup file or paste backup JSON first." };
+    }
+    var parsed;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch (e) {
+      return { ok: false, error: "Invalid JSON — make sure you selected or pasted a valid backup file." };
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false, error: "Backup JSON must be an object." };
+    }
+    var prog = sanitizeProgressMap(parsed.progress);
+    if (!prog) {
+      return { ok: false, error: "Missing 'progress' data in this JSON file." };
+    }
+    var streak = typeof parsed.streak === "number" && isFinite(parsed.streak) ? Math.max(0, Math.round(parsed.streak)) : 0;
+    var prefs = parsed.preferences && typeof parsed.preferences === "object" ? parsed.preferences : null;
+    var exportedAt = typeof parsed.exportedAt === "string" ? parsed.exportedAt : null;
+    var version = parsed.version || 1;
+    return {
+      ok: true,
+      version: version,
+      exportedAt: exportedAt,
+      progress: prog,
+      streak: streak,
+      preferences: prefs,
+      counts: getProgressCounts(prog)
+    };
+  }
+
+  function showRestorePreview(rawText, sourceLabel) {
+    var prev = document.getElementById("restorePreview");
+    if (!prev) return;
+    var res = parseBackupText(rawText);
+    if (!res.ok) {
+      prev.className = "restore-preview show error";
+      prev.textContent = res.error;
+      return;
+    }
+    var datePart = res.exportedAt ? (" · exported " + new Date(res.exportedAt).toLocaleDateString()) : "";
+    var prefPart = res.preferences ? " · includes settings" : "";
+    prev.className = "restore-preview show";
+    prev.textContent = (sourceLabel ? (sourceLabel + ": ") : "Ready to restore: ") +
+      res.counts.tracked + " objectives (" + res.counts.mastered + " mastered), streak " + res.streak + datePart + prefPart + ".";
+  }
+
+  function masteryRank(entry) {
+    if (!entry || !entry.total) return 0;
+    var recent = Array.isArray(entry.recent) ? entry.recent : [];
+    var rr = recent.filter(Boolean).length;
+    if (recent.length >= 3 && rr / recent.length >= 0.8) return 2;
+    return 1;
+  }
+
+  function isIncomingStronger(curr, inc) {
+    var rCurr = masteryRank(curr);
+    var rInc = masteryRank(inc);
+    if (rInc !== rCurr) return rInc > rCurr;
+    if (inc.total !== curr.total) return inc.total > curr.total;
+    return inc.right > curr.right;
+  }
+
+  function smartMergeProgress(currMap, incMap) {
+    var merged = {};
+    for (var ck in currMap) {
+      if (Object.prototype.hasOwnProperty.call(currMap, ck)) {
+        merged[ck] = {
+          right: currMap[ck].right,
+          total: currMap[ck].total,
+          recent: (currMap[ck].recent || []).slice()
+        };
+      }
+    }
+    var added = 0, upgraded = 0, kept = 0;
+    for (var ik in incMap) {
+      if (!Object.prototype.hasOwnProperty.call(incMap, ik)) continue;
+      var inc = incMap[ik];
+      if (!merged[ik] || merged[ik].total === 0) {
+        merged[ik] = { right: inc.right, total: inc.total, recent: inc.recent.slice() };
+        added++;
+      } else if (isIncomingStronger(merged[ik], inc)) {
+        merged[ik] = { right: inc.right, total: inc.total, recent: inc.recent.slice() };
+        upgraded++;
+      } else {
+        kept++;
+      }
+    }
+    return { merged: merged, added: added, upgraded: upgraded, kept: kept };
+  }
+
+  function applyRestoredPreferences(prefs) {
+    if (!prefs) return;
+    if (prefs.theme === "dark" || prefs.theme === "light") state.theme = prefs.theme;
+    if (typeof prefs.keypadEnabled === "boolean") state.keypadEnabled = prefs.keypadEnabled;
+    if (typeof prefs.chapterId === "string" && prefs.chapterId) state.chapterId = prefs.chapterId;
+    if (typeof prefs.sectionId === "string" && prefs.sectionId) state.sectionId = prefs.sectionId;
+    if (typeof prefs.objectiveFilter === "string" && prefs.objectiveFilter) state.objectiveFilter = prefs.objectiveFilter;
+    if (typeof prefs.unmasteredOnly === "boolean") state.unmasteredOnly = prefs.unmasteredOnly;
+    validateNavigationState();
+    applyTheme();
+    updateKeypadVisibility();
+    if (prefs.scratchpad && window.ScratchPad && window.ScratchPad.applyPrefs) {
+      window.ScratchPad.applyPrefs(prefs.scratchpad);
+    }
+  }
+
+  function downloadBackupFile() {
+    var text = buildBackupPayload();
+    document.getElementById("backupText").value = text;
+    var filename = getBackupFilename();
+    var blob = new Blob([text], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    markBackupCompleted("Downloaded " + filename);
+  }
+
+  function shareBackupFile() {
+    var text = buildBackupPayload();
+    document.getElementById("backupText").value = text;
+    var filename = getBackupFilename();
+
+    if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+      try {
+        var file = new File([text], filename, { type: "application/json" });
+        if (typeof navigator.canShare === "function" && navigator.canShare({ files: [file] })) {
+          navigator.share({
+            files: [file],
+            title: "Algebra Practice Backup",
+            text: "OpenStax Algebra Practice progress backup (" + filename + ")"
+          }).then(function () {
+            markBackupCompleted("Shared " + filename);
+          }).catch(function (err) {
+            if (err && err.name === "AbortError") {
+              setBackupStatus("Share cancelled.");
+            } else {
+              downloadBackupFile();
+            }
+          });
+          return;
+        }
+      } catch (e) {}
+    }
+    // Fallback when Share Sheet file sharing isn't available (e.g. desktop browsers)
+    downloadBackupFile();
+  }
+
+  function copyBackupJson() {
+    var text = buildBackupPayload();
+    var ta = document.getElementById("backupText");
+    ta.value = text;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () {
+        markBackupCompleted("Copied backup JSON to clipboard!");
+      }).catch(function () {
+        fallbackCopyText(ta);
+      });
+    } else {
+      fallbackCopyText(ta);
+    }
+  }
+
+  function fallbackCopyText(ta) {
+    var details = document.getElementById("backupRawDetails");
+    var wasOpen = details && details.open;
+    if (details) details.open = true;
+    ta.focus();
+    ta.select();
+    try {
+      document.execCommand("copy");
+      markBackupCompleted("Copied backup JSON to clipboard!");
+    } catch (e) {
+      setBackupStatus("Opened raw JSON below — select and copy manually.", "is-error");
+      return;
+    }
+    if (details && !wasOpen) details.open = false;
+  }
+
+  function applyRestoreFromTextarea() {
+    var rawText = document.getElementById("backupText").value;
+    var res = parseBackupText(rawText);
+    if (!res.ok) {
+      showRestorePreview(rawText, "");
+      setBackupStatus(res.error, "is-error");
+      return;
+    }
+
+    var restorePrefs = !!document.getElementById("restorePrefsCheck").checked;
+    var statusMsg = "";
+
+    if (state.restoreMode === "overwrite") {
+      if (getTotalAttempts() > 0 && !window.confirm("Overwrite all current progress on this device with this backup?")) {
+        return;
+      }
+      state.progress = res.progress;
+      state.streak = res.streak;
+      if (restorePrefs && res.preferences) applyRestoredPreferences(res.preferences);
+      statusMsg = "Replaced progress (" + res.counts.tracked + " objectives, " + res.counts.mastered + " mastered).";
+    } else {
+      var m = smartMergeProgress(state.progress, res.progress);
+      state.progress = m.merged;
+      state.streak = Math.max(state.streak, res.streak);
+      if (restorePrefs && res.preferences) applyRestoredPreferences(res.preferences);
+      statusMsg = "Smart Merge complete: " + m.added + " added, " + m.upgraded + " upgraded, " + m.kept + " kept.";
+    }
+
+    safeSaveStorage();
+    syncLocationHash();
+    updateStreakUI();
+    updateNavBreadcrumb();
+    renderSectionBar(false);
+    renderActiveFilterStrip();
+    updateBackupNudgeUI();
+    if (state.drawerOpen) renderNavDrawer();
+    if (state.viewMode === "selfcheck") renderSelfCheck();
+
+    document.getElementById("backupText").value = buildBackupPayload();
+    var prev = document.getElementById("restorePreview");
+    if (prev) prev.className = "restore-preview";
+    setBackupStatus(statusMsg, "is-success");
+  }
+
   function openBackupModal() {
-    var data = JSON.stringify({ progress: state.progress, streak: state.streak }, null, 2);
-    document.getElementById("backupText").value = data;
-    document.getElementById("backupStatus").textContent = "";
+    document.getElementById("backupText").value = buildBackupPayload();
+    var prev = document.getElementById("restorePreview");
+    if (prev) { prev.className = "restore-preview"; prev.textContent = ""; }
+    var details = document.getElementById("backupRawDetails");
+    if (details) details.open = false;
+    setRestoreMode("merge");
+    updateBackupNudgeUI();
+    setBackupStatus("");
+
+    // Adjust Share button label if File Share API isn't supported
+    var shareBtn = document.getElementById("shareBackupBtn");
+    if (shareBtn) {
+      var hasShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
+      shareBtn.textContent = hasShare ? "Share / Save to Files" : "Save Backup .json";
+    }
+
     document.getElementById("backupModal").classList.add("show");
+  }
+
+  function closeBackupModal() {
+    document.getElementById("backupModal").classList.remove("show");
   }
 
   function init() {
@@ -1340,6 +1756,7 @@
 
     applyTheme();
     updateStreakUI();
+    updateBackupNudgeUI();
     updateNavBreadcrumb();
     renderSectionBar(true);
     syncDrawerQuickButtons();
@@ -1454,41 +1871,46 @@
     });
 
     document.getElementById("backupBtn").addEventListener("click", openBackupModal);
-    document.getElementById("closeBackupBtn").addEventListener("click", function () {
-      document.getElementById("backupModal").classList.remove("show");
+    document.getElementById("closeBackupBtn").addEventListener("click", closeBackupModal);
+    document.getElementById("closeBackupTopBtn").addEventListener("click", closeBackupModal);
+    document.getElementById("backupModal").addEventListener("click", function (ev) {
+      if (ev.target === this) closeBackupModal();
     });
 
-    document.getElementById("downloadBackupBtn").addEventListener("click", function () {
-      var text = document.getElementById("backupText").value;
-      var blob = new Blob([text], { type: "application/json" });
-      var url = URL.createObjectURL(blob);
-      var a = document.createElement("a");
-      a.href = url;
-      a.download = "algebra-practice-progress.json";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      document.getElementById("backupStatus").textContent = "Downloaded progress backup JSON.";
+    document.getElementById("shareBackupBtn").addEventListener("click", shareBackupFile);
+    document.getElementById("downloadBackupBtn").addEventListener("click", downloadBackupFile);
+    document.getElementById("copyBackupBtn").addEventListener("click", copyBackupJson);
+
+    document.getElementById("restoreModeMergeBtn").addEventListener("click", function () { setRestoreMode("merge"); });
+    document.getElementById("restoreModeOverwriteBtn").addEventListener("click", function () { setRestoreMode("overwrite"); });
+
+    var fileInp = document.getElementById("backupFileInput");
+    document.getElementById("pickBackupFileBtn").addEventListener("click", function () {
+      fileInp.value = "";
+      fileInp.click();
     });
 
-    document.getElementById("importBackupBtn").addEventListener("click", function () {
-      try {
-        var parsed = JSON.parse(document.getElementById("backupText").value);
-        if (parsed.progress) state.progress = parsed.progress;
-        if (typeof parsed.streak === "number") state.streak = parsed.streak;
-        safeSaveStorage();
-        updateStreakUI();
-        updateNavBreadcrumb();
-        renderSectionBar(false);
-        renderActiveFilterStrip();
-        if (state.drawerOpen) renderNavDrawer();
-        if (state.viewMode === "selfcheck") renderSelfCheck();
-        document.getElementById("backupStatus").textContent = "Progress restored successfully!";
-      } catch (e) {
-        document.getElementById("backupStatus").textContent = "Invalid JSON — please check the pasted backup.";
-      }
+    fileInp.addEventListener("change", function (ev) {
+      var file = ev.target.files && ev.target.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        var text = String(reader.result || "");
+        document.getElementById("backupText").value = text;
+        showRestorePreview(text, "Loaded " + file.name);
+        setBackupStatus("File loaded — review summary above and tap Apply Restore.");
+      };
+      reader.onerror = function () {
+        setBackupStatus("Could not read that file.", "is-error");
+      };
+      reader.readAsText(file);
     });
+
+    document.getElementById("backupText").addEventListener("input", function () {
+      showRestorePreview(this.value, "Pasted JSON");
+    });
+
+    document.getElementById("applyRestoreBtn").addEventListener("click", applyRestoreFromTextarea);
 
     document.getElementById("resetProgressBtn").addEventListener("click", function () {
       if (!window.confirm("Reset all saved mastery progress and streak?")) return;
@@ -1496,13 +1918,16 @@
       state.streak = 0;
       safeSaveStorage();
       updateStreakUI();
+      updateBackupNudgeUI();
       updateNavBreadcrumb();
       renderSectionBar(false);
       renderActiveFilterStrip();
       if (state.drawerOpen) renderNavDrawer();
       if (state.viewMode === "selfcheck") renderSelfCheck();
-      document.getElementById("backupText").value = JSON.stringify({ progress: {}, streak: 0 }, null, 2);
-      document.getElementById("backupStatus").textContent = "Progress cleared.";
+      document.getElementById("backupText").value = buildBackupPayload();
+      var prev = document.getElementById("restorePreview");
+      if (prev) prev.className = "restore-preview";
+      setBackupStatus("All mastery progress cleared.");
     });
 
     if (window.ScratchPad) window.ScratchPad.init();

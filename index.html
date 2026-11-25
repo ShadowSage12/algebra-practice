@@ -36,7 +36,7 @@
       <div id="streakPill" class="streak-pill">Streak: 0</div>
       <button id="scratchToggleBtn" class="icon-btn" type="button" title="Open Apple Pencil scratch pad">✏️ Scratch Pad</button>
       <button id="keypadToggleBtn" class="icon-btn active" type="button" title="Toggle built-in math keypad">Keypad: On</button>
-      <button id="backupBtn" class="icon-btn" type="button" title="Backup or restore progress">Backup</button>
+      <button id="backupBtn" class="icon-btn backup-btn-wrap" type="button" title="Backup or restore progress">Backup<span id="backupNudgeDot" class="backup-nudge-dot" aria-hidden="true"></span></button>
       <button id="themeBtn" class="icon-btn" type="button" aria-label="Toggle dark mode">🌙</button>
     </div>
   </header>
@@ -195,19 +195,70 @@
   </div>
 
   <!-- Export / Import Backup Modal -->
-  <div id="backupModal" class="modal-backdrop" role="dialog" aria-modal="true">
-    <div class="modal">
-      <h3>Backup &amp; Restore Progress</h3>
-      <p style="margin:0 0 10px 0; font-size:14px; color:var(--text-muted);">
-        Your progress auto-saves locally on your iPad. Download a JSON backup or paste one below to transfer across devices.
-      </p>
-      <textarea id="backupText" aria-label="Progress JSON"></textarea>
-      <div id="backupStatus" style="margin-top:8px; font-size:13px; color:var(--accent); font-weight:600;"></div>
-      <div class="action-row" style="margin-top:12px;">
-        <button id="downloadBackupBtn" class="btn btn-primary btn-sm" type="button">Download JSON</button>
-        <button id="importBackupBtn" class="btn btn-sm" type="button">Restore Pasted JSON</button>
-        <button id="resetProgressBtn" class="btn btn-sm" type="button" style="color:var(--danger);">Reset All</button>
-        <button id="closeBackupBtn" class="btn btn-sm" type="button" style="margin-left:auto;">Close</button>
+  <div id="backupModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Backup and Restore Progress">
+    <div class="modal backup-modal">
+      <div class="backup-modal-header">
+        <h3>Backup &amp; Restore</h3>
+        <button id="closeBackupTopBtn" class="icon-btn" type="button" aria-label="Close backup modal">✕</button>
+      </div>
+
+      <div id="backupMetaBar" class="backup-meta-bar">
+        <div class="backup-meta-row">
+          <strong id="backupLastText">Last backed up: Never</strong>
+          <span id="backupSummaryText" style="color:var(--text-muted);"></span>
+        </div>
+        <div id="backupNudgeText" style="font-size:12.5px; color:var(--warn); display:none;"></div>
+      </div>
+
+      <!-- Export Section -->
+      <div class="backup-section">
+        <div class="backup-section-title">1. Export Progress &amp; Settings</div>
+        <div class="backup-btn-row">
+          <button id="shareBackupBtn" class="btn btn-primary btn-sm" type="button">Share / Save to Files</button>
+          <button id="downloadBackupBtn" class="btn btn-sm" type="button">Download .json</button>
+          <button id="copyBackupBtn" class="btn btn-sm" type="button">Copy JSON</button>
+        </div>
+      </div>
+
+      <!-- Restore Section -->
+      <div class="backup-section">
+        <div class="backup-section-title">2. Import &amp; Restore</div>
+        <input id="backupFileInput" type="file" accept=".json,application/json,text/plain" style="display:none;">
+
+        <div class="restore-mode-row">
+          <button id="pickBackupFileBtn" class="btn btn-sm" type="button">📁 Import .json File</button>
+          <div class="seg-group" role="radiogroup" aria-label="Restore mode">
+            <button id="restoreModeMergeBtn" class="seg-btn active" type="button">Smart Merge</button>
+            <button id="restoreModeOverwriteBtn" class="seg-btn" type="button">Overwrite All</button>
+          </div>
+        </div>
+
+        <p id="restoreModeDesc" class="restore-mode-desc">
+          <strong>Smart Merge</strong> combines both devices—adding missing objectives and keeping the stronger mastery record without double-counting.
+        </p>
+
+        <label class="backup-check-row">
+          <input id="restorePrefsCheck" type="checkbox">
+          <span>Also restore app settings (theme, keypad, scratch pad, last section)</span>
+        </label>
+
+        <div id="restorePreview" class="restore-preview"></div>
+
+        <div class="backup-btn-row">
+          <button id="applyRestoreBtn" class="btn btn-primary btn-sm" type="button">Apply Restore (Smart Merge)</button>
+        </div>
+
+        <details id="backupRawDetails" class="backup-raw-details">
+          <summary>View or paste raw JSON</summary>
+          <textarea id="backupText" aria-label="Progress JSON" placeholder="Paste backup JSON here or choose a .json file above..."></textarea>
+        </details>
+      </div>
+
+      <div id="backupStatus" class="backup-status" role="status" aria-live="polite"></div>
+
+      <div class="backup-footer">
+        <button id="resetProgressBtn" class="btn btn-sm" type="button" style="color:var(--danger);">Reset All Progress</button>
+        <button id="closeBackupBtn" class="btn btn-sm" type="button">Close</button>
       </div>
     </div>
   </div>
